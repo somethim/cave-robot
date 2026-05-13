@@ -1,6 +1,7 @@
 pub const TILE_FLOOR: u8 = 0;
 pub const TILE_WALL: u8 = 1;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cave {
     pub grid: Vec<Vec<Vec<u8>>>,
     pub size_x: usize,

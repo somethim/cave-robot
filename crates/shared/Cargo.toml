@@ -6,3 +6,4 @@ authors.workspace = true
 description = "Shared types and data structures — Pose, CaveMap, RobotState, LidarScan, and other common types used across all crates."
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }

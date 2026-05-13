@@ -97,7 +97,8 @@ a path always exists between them.
 
 ## Configuration
 
-All generation parameters are set at the top of `apps/generator/src/main.rs`:
+Generation parameters are set at the top of `apps/generator/src/main.rs` (or
+`apps/robot/src/main.rs`):
 
 ```rust
 let size_x = 64;
@@ -112,6 +113,22 @@ let config = map::GeneratorConfig {
     smooth_iterations: 6,    // CA smoothing passes per floor
     dead_end_count: 10,      // dead-end tunnels carved per floor
 };
+```
+
+## JSON export
+
+The robot app writes the cave to `/tmp/cave.json` (override with `CAVE_FILE`
+env var). The JSON contains the full 3D grid, start, end, and stairs — ready
+for ROS nodes to read.
+
+```python
+import json
+with open("/tmp/cave.json") as f:
+    cave = json.load(f)
+grid = cave["grid"]       # [floor][row][col], 0=floor 1=wall
+start = cave["start"]     # [col, row, floor]
+end = cave["end"]
+stairs = cave["stairs"]   # [[col, row], ...] descending from each floor
 ```
 
 ## Determinism

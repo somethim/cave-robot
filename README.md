@@ -30,10 +30,22 @@ ros/src/cave_robot_node  ←→  ROS 2 topics  ←→  Gazebo
 | File                                         | What                                 |
 |----------------------------------------------|--------------------------------------|
 | [docs/generation.md](docs/generation.md)     | Cave generation algorithm            |
+| [docs/gazebo.md](docs/gazebo.md)             | Gazebo world pipeline plan           |
 | [docs/setup.md](docs/setup.md)               | Build, install, and usage            |
 | [docs/architecture.md](docs/architecture.md) | Full project structure and crate map |
 
 ## Resources
 
 - [Cellular Automata Method for Generating Random Cave-Like Levels](https://www.roguebasin.com/index.php/Cellular_Automata_Method_for_Generating_Random_Cave-Like_Levels)
-  by RogueBasin
+  by RogueBasin — the 2D CA algorithm used per slice
+- [Marching Cubes: A High Resolution 3D Surface Construction Algorithm](https://dl.acm.org/doi/10.1145/37402.37422)
+  by Lorensen & Cline — voxel-to-mesh conversion for Gazebo worlds
+- [Amit's A* Pages](https://theory.stanford.edu/~amitp/GameProgramming/AStarComparison.html)
+  by Patel — practical introduction to A* and related algorithms
+- [A* and D* Lecture](https://www.cs.cmu.edu/~motionplanning/lecture/AppH-astar-dstar_howie.pdf)
+  (CMU) — covers both A* and D* in one appendix
+- [D* Lite](https://aaai.org/papers/00476-aaai02-072-d-lite/) by Koenig &
+  Likhachev — incremental replanning for partially known environments
+- [A* Search Algorithm](https://doi.org/10.1109/TSSC.1968.300136) by Hart,
+  Nilsson & Raphael — optimal pathfinding on fully known maps
+- [`rclrs`](https://docs.rs/rclrs) — ROS 2 Rust client library

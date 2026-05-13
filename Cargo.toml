@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "apps/robot",
+    "apps/generator",
+    "crates/shared",
+    "crates/pathfinding",
+]

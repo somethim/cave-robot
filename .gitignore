@@ -54,6 +54,9 @@ ros/install/
 ros/log/
 ros/.cargo/
 
+# ROS Cargo build output (ament_cargo packages)
+ros/src/**/target/
+
 # Python bytecode / cache
 __pycache__/
 *.pyc

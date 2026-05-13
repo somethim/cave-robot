@@ -3,21 +3,53 @@ use rand::RngExt;
 use rand::SeedableRng;
 use shared::{Cave, TILE_FLOOR, TILE_WALL};
 
+#[derive(Clone, Copy)]
+pub struct GeneratorConfig {
+    pub fill_confidence: u32,
+    pub wall_threshold: u32,
+    pub floor_threshold: u32,
+    pub smooth_iterations: usize,
+    pub dead_end_count: usize,
+}
+
+impl Default for GeneratorConfig {
+    fn default() -> Self {
+        Self {
+            fill_confidence: 50,
+            wall_threshold: 6,
+            floor_threshold: 3,
+            smooth_iterations: 6,
+            dead_end_count: 8,
+        }
+    }
+}
+
 pub struct Map {
     pub cave: Cave,
     grid2: Vec<Vec<u8>>,
+    config: GeneratorConfig,
 }
 
 impl Map {
     pub fn new(size_x: usize, size_y: usize, size_z: usize) -> Self {
+        Self::with_config(size_x, size_y, size_z, GeneratorConfig::default())
+    }
+
+    pub fn with_config(
+        size_x: usize,
+        size_y: usize,
+        size_z: usize,
+        config: GeneratorConfig,
+    ) -> Self {
         Self {
             cave: Cave::new(size_x, size_y, size_z),
             grid2: vec![vec![TILE_FLOOR; size_x]; size_y],
+            config,
         }
     }
 
     fn randpick(&self, rng: &mut StdRng) -> u8 {
-        if rng.random::<u32>() % 100 < 50 {
+        if rng.random::<u32>() % 100 < self.config.fill_confidence {
             TILE_WALL
         } else {
             TILE_FLOOR
@@ -65,9 +97,9 @@ impl Map {
                         }
                     }
                 }
-                if wall_count >= 6 {
+                if wall_count >= self.config.wall_threshold {
                     self.grid2[row][col] = TILE_WALL;
-                } else if wall_count <= 3 {
+                } else if wall_count <= self.config.floor_threshold {
                     self.grid2[row][col] = TILE_FLOOR;
                 } else {
                     self.grid2[row][col] = self.cave.grid[level][row][col];
@@ -326,11 +358,11 @@ impl Map {
         let mut rng = StdRng::seed_from_u64(seed);
         for level in 0..self.cave.size_z {
             self.initmap(level, &mut rng);
-            for _ in 0..6 {
+            for _ in 0..self.config.smooth_iterations {
                 self.step(level);
             }
             self.connect_regions(level);
-            self.carve_dead_ends(level, &mut rng, 8);
+            self.carve_dead_ends(level, &mut rng, self.config.dead_end_count);
         }
         self.place_stairs(&mut rng);
         self.pick_start_end(&mut rng);

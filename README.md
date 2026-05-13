@@ -4,16 +4,21 @@ An autonomous drone that navigates randomly generated cave systems.
 
 ## Overview
 
-The drone is placed inside a procedurally generated cave with a randomly selected start and end point. Using a LIDAR system, it navigates from start to end. Once it reaches the destination, the LIDAR is cut off and the drone must navigate back to the start using only its stored map via a SLAM algorithm.
+The drone is placed inside a procedurally generated cave with a randomly selected start and end point. Using a LIDAR
+system, it navigates from start to end. Once it reaches the destination, the LIDAR is cut off and the drone must
+navigate back to the start using only its stored map via a SLAM algorithm.
 
 ### Cave Generation
 
-Caves are generated using a **Seeded Cellular Automata with Region Connection** algorithm. Given a seed, the algorithm produces a unique cave layout with connected passageways, guaranteeing a valid path between the start and end points.
+Caves are generated using a **Seeded Cellular Automata with Region Connection** algorithm. Given a seed, the algorithm
+produces a unique cave layout with connected passageways, guaranteeing a valid path between the start and end points.
 
 ### Navigation
 
-- **Forward (Start → End):** Real-time LIDAR-based navigation — the drone scans its surroundings and plans its path through unexplored cave sections.
-- **Return (End → Start):** SLAM-based navigation — the drone relies on the map it built during the forward journey, with no active LIDAR input.
+- **Forward (Start → End):** Real-time LIDAR-based navigation — the drone scans its surroundings and plans its path
+  through unexplored cave sections.
+- **Return (End → Start):** SLAM-based navigation — the drone relies on the map it built during the forward journey,
+  with no active LIDAR input.
 
 ## Project Structure
 
@@ -39,7 +44,7 @@ Caves are generated using a **Seeded Cellular Automata with Region Connection** 
 
 ## Prerequisites
 
-This project runs inside a **Distrobox** container. See `distrobox-installed-pkgs` for a reference list of all installed packages.
+This project runs inside a **Distrobox** container.
 
 ### 1. Create the Distrobox
 
@@ -75,7 +80,8 @@ sudo apt install -y build-essential cmake git just vim
 
 ### 5. Install Python Dependencies
 
-Some ROS 2 build tools require `catkin_pkg`. If you use a Python version manager (mise, pyenv, etc.), install it via pip:
+Some ROS 2 build tools require `catkin_pkg`. If you use a Python version manager (mise, pyenv, etc.), install it via
+pip:
 
 ```bash
 pip install catkin_pkg
@@ -139,3 +145,9 @@ just bringup
 ```
 
 See the `Justfile` for all available commands.
+
+# Resources used
+
+- Cave generation: [Cellular Automata Method for Generating Random Cave-Like Levels
+  ](https://www.roguebasin.com/index.php/Cellular_Automata_Method_for_Generating_Random_Cave-Like_Levels)
+  by [RougeBasin](https://roguebasin.com/)

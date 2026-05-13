@@ -16,6 +16,7 @@ adjacent floors are linked by staircases.
 seed → initmap → step × 6 → connect_regions → carve_dead_ends → next level
                                                                       ↓
                                                             place_stairs
+                                                            connect_regions
                                                             pick_start_end
 ```
 
@@ -51,7 +52,8 @@ a single connected component per level:
    the regions.
 3. **Manhattan corridor fallback** — if regions remain after wall breaching, find
    the closest pair of tiles from different regions and carve an L-shaped
-   corridor between them. This repeats until only one region remains.
+   corridor between them. This repeats (up to 4096 iterations) until only one
+   region remains.
 
 ### 4. Dead-end carving (`carve_dead_ends`)
 
@@ -75,14 +77,23 @@ For each adjacent floor pair `(level, level+1)`:
 1. Collect all `(col, row)` where both floors have `TILE_FLOOR`.
 2. Pick one at random as the staircase.
 3. If no overlap exists (rare), force a random position to floor on both levels.
+   This fallback can create orphan 1-tile islands if the chosen tile is surrounded
+   by walls.
 
 `stairs[level]` stores the `(col, row)` descending from `level → level+1`.
+
+### 5b. Post-stairs reconnection
+
+After all stairs are placed, `connect_regions` is re-run on every level. This
+absorbs any orphan stair islands from the fallback into the main floor component,
+guaranteeing the full 3D cave is a single connected component.
 
 ### 6. Start/end selection (`pick_start_end`)
 
 Two distinct floor tiles are chosen uniformly at random from the entire 3D
-volume as `S` (start) and `E` (end). Since all floors are fully connected,
-a path always exists between them.
+volume as `S` (start) and `E` (end). Since the post-stairs reconnection
+guarantees a single connected component across all levels, a path always
+exists between them.
 
 ## Tile legend
 
@@ -97,34 +108,26 @@ a path always exists between them.
 
 ## Configuration
 
-Generation parameters are set at the top of `apps/generator/src/main.rs` (or
-`apps/robot/src/main.rs`):
+Generation parameters are set via `.env` at the project root:
 
-```rust
-let size_x = 64;
-let size_y = 32;
-let size_z = 4;
-let seed = 42;
-
-let config = map::GeneratorConfig {
-    fill_confidence: 50,     // % chance of wall in random init (0–100)
-    wall_threshold: 6,       // wall neighbours ≥ this → becomes wall
-    floor_threshold: 3,      // wall neighbours ≤ this → becomes floor
-    smooth_iterations: 6,    // CA smoothing passes per floor
-    dead_end_count: 10,      // dead-end tunnels carved per floor
-};
+```
+CAVE_FILE=cave.json
+CAVE_FILL_CONFIDENCE=50    # % chance of wall in random init (0–100)
+CAVE_WALL_THRESHOLD=6      # wall neighbours ≥ this → becomes wall
+CAVE_FLOOR_THRESHOLD=3     # wall neighbours ≤ this → becomes floor
+CAVE_SMOOTH_ITERATIONS=6   # CA smoothing passes per floor
+CAVE_DEAD_END_COUNT=8      # dead-end tunnels carved per floor
 ```
 
 ## JSON export
 
-The robot app writes the cave to `/tmp/cave.json` (override with `CAVE_FILE`
-env var). The JSON contains the full 3D grid, start, end, and stairs — ready
+Both `generator` and `robot` read `CAVE_FILE` from the environment (or
+`.env`). The JSON contains the full 3D grid, start, end, and stairs — ready
 for ROS nodes to read.
 
 ```python
 import json
-with open("/tmp/cave.json") as f:
-    cave = json.load(f)
+cave = json.load(open("cave.json"))
 grid = cave["grid"]       # [floor][row][col], 0=floor 1=wall
 start = cave["start"]     # [col, row, floor]
 end = cave["end"]

@@ -8,3 +8,4 @@ description = "Cave map generator — uses a Seeded Cellular Automata with Regio
 [dependencies]
 rand = "0.10.1"
 shared = { path = "../../crates/shared" }
+serde_json = "1"

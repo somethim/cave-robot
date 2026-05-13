@@ -6,6 +6,5 @@ authors.workspace = true
 description = "Main robot control loop — receives the generated cave map, drives the drone from start to end using LIDAR-based navigation, then returns to the start using a stored SLAM map."
 
 [dependencies]
-generator = { path = "../generator" }
-shared = { path = "../../crates/shared" }
 serde_json = "1"
+shared = { path = "../../crates/shared" }

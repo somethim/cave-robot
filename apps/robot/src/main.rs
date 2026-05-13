@@ -1,28 +1,13 @@
-use generator::map::{GeneratorConfig, Map};
-use std::path::PathBuf;
-
 fn main() {
-    let size_x = 64;
-    let size_y = 32;
-    let size_z = 4;
-    let seed = 42;
+    shared::load_env();
 
-    let config = GeneratorConfig {
-        fill_confidence: 50,
-        wall_threshold: 6,
-        floor_threshold: 3,
-        smooth_iterations: 6,
-        dead_end_count: 10,
-    };
-
-    let mut map = Map::with_config(size_x, size_y, size_z, config);
-    map.generate(seed);
-    map.cave.display();
-
-    let path = PathBuf::from(
-        std::env::var("CAVE_FILE").unwrap_or_else(|_| "/tmp/cave.json".into()),
+    let path = shared::env_or("CAVE_FILE", "cave.json".to_string());
+    let json = std::fs::read_to_string(&path).unwrap();
+    let cave: shared::Cave = serde_json::from_str(&json).unwrap();
+    println!(
+        "loaded cave: {}×{}×{}",
+        cave.size_x, cave.size_y, cave.size_z
     );
-    let json = serde_json::to_string_pretty(&map.cave).unwrap();
-    std::fs::write(&path, json).unwrap();
-    eprintln!("cave written to {}", path.display());
+    println!("start: {:?}, end: {:?}", cave.start, cave.end);
+    println!("stairs: {:?}", cave.stairs);
 }

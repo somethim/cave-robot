@@ -46,6 +46,7 @@ $RECYCLE.BIN/
 *.swo
 *~
 *.tmp
+tmp/
 
 # ROS 2 / Colcon build artifacts
 ros/build/

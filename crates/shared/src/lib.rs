@@ -1,3 +1,13 @@
+use std::str::FromStr;
+
+pub fn load_env() {
+    dotenvy::dotenv().ok();
+}
+
+pub fn env_or<T: FromStr>(key: &str, default: T) -> T {
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
 pub const TILE_FLOOR: u8 = 0;
 pub const TILE_WALL: u8 = 1;
 

@@ -1,6 +1,8 @@
 [package]
 name = "pathfinding"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Pathfinding algorithms for cave navigation — provides A*, BFS, and other graph search implementations used by the robot for both forward exploration and return navigation via stored map."
 
 [dependencies]

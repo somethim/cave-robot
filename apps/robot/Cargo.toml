@@ -1,2 +1,6 @@
 [package]
 name = "robot"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Main robot control loop — receives the generated cave map, drives the drone from start to end using LIDAR-based navigation, then returns to the start using a stored SLAM map."

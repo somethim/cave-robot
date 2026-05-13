@@ -46,3 +46,13 @@ $RECYCLE.BIN/
 *.swo
 *~
 *.tmp
+
+# ROS 2 / Colcon build artifacts
+ros/build/
+ros/install/
+ros/log/
+
+# Python bytecode / cache
+__pycache__/
+*.pyc
+*.pyo

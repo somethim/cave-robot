@@ -1,2 +1,6 @@
 [package]
 name = "generator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Cave map generator — uses a Seeded Cellular Automata with Region Connection algorithm to procedurally generate cave systems from a random seed, then selects valid start and end points."

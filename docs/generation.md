@@ -51,7 +51,7 @@ a single connected component per level:
    the regions.
 3. **Manhattan corridor fallback** — if regions remain after wall breaching, find
    the closest pair of tiles from different regions and carve an L-shaped
-   corridor between them.
+   corridor between them. This repeats until only one region remains.
 
 ### 4. Dead-end carving (`carve_dead_ends`)
 
@@ -97,20 +97,21 @@ a path always exists between them.
 
 ## Configuration
 
-Edit `apps/generator/src/main.rs`:
+All generation parameters are set at the top of `apps/generator/src/main.rs`:
 
 ```rust
-let size_x = 64;   // width in tiles
-let size_y = 32;   // height in tiles
-let size_z = 4;    // number of floors
-let seed = 42;     // RNG seed (deterministic output)
-```
+let size_x = 64;
+let size_y = 32;
+let size_z = 4;
+let seed = 42;
 
-The dead-end count (8 per floor) can be adjusted in
-`apps/generator/src/map.rs`:
-
-```rust
-self.carve_dead_ends(level, &mut rng, 8);
+let config = map::GeneratorConfig {
+    fill_confidence: 50,     // % chance of wall in random init (0–100)
+    wall_threshold: 6,       // wall neighbours ≥ this → becomes wall
+    floor_threshold: 3,      // wall neighbours ≤ this → becomes floor
+    smooth_iterations: 6,    // CA smoothing passes per floor
+    dead_end_count: 10,      // dead-end tunnels carved per floor
+};
 ```
 
 ## Determinism

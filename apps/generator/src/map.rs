@@ -31,10 +31,6 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn new(size_x: usize, size_y: usize, size_z: usize) -> Self {
-        Self::with_config(size_x, size_y, size_z, GeneratorConfig::default())
-    }
-
     pub fn with_config(
         size_x: usize,
         size_y: usize,
@@ -203,45 +199,48 @@ impl Map {
             }
         }
 
-        let (labels_after, region_count_after) = self.flood_fill(level);
-        if region_count_after <= 1 {
-            return;
-        }
+        // Manhattan corridor fallback — repeat until all regions are connected
+        loop {
+            let (labels_after, region_count_after) = self.flood_fill(level);
+            if region_count_after <= 1 {
+                return;
+            }
 
-        let mut shortest_distance = usize::MAX;
-        let mut best_pair = ((0, 0), (0, 0));
-        for search_row_a in 1..height - 1 {
-            for search_col_a in 1..width - 1 {
-                if self.cave.grid[level][search_row_a][search_col_a] != TILE_FLOOR {
-                    continue;
-                }
-                let region_id_a = labels_after[search_row_a][search_col_a] as usize;
-                for search_row_b in 1..height - 1 {
-                    for search_col_b in 1..width - 1 {
-                        if self.cave.grid[level][search_row_b][search_col_b] != TILE_FLOOR {
-                            continue;
-                        }
-                        if labels_after[search_row_b][search_col_b] == region_id_a as u32 {
-                            continue;
-                        }
-                        let distance = search_col_a.abs_diff(search_col_b)
-                            + search_row_a.abs_diff(search_row_b);
-                        if distance < shortest_distance {
-                            shortest_distance = distance;
-                            best_pair =
-                                ((search_col_a, search_row_a), (search_col_b, search_row_b));
+            let mut shortest_distance = usize::MAX;
+            let mut best_pair = ((0, 0), (0, 0));
+            for search_row_a in 1..height - 1 {
+                for search_col_a in 1..width - 1 {
+                    if self.cave.grid[level][search_row_a][search_col_a] != TILE_FLOOR {
+                        continue;
+                    }
+                    let region_id_a = labels_after[search_row_a][search_col_a] as usize;
+                    for search_row_b in 1..height - 1 {
+                        for search_col_b in 1..width - 1 {
+                            if self.cave.grid[level][search_row_b][search_col_b] != TILE_FLOOR {
+                                continue;
+                            }
+                            if labels_after[search_row_b][search_col_b] == region_id_a as u32 {
+                                continue;
+                            }
+                            let distance = search_col_a.abs_diff(search_col_b)
+                                + search_row_a.abs_diff(search_row_b);
+                            if distance < shortest_distance {
+                                shortest_distance = distance;
+                                best_pair =
+                                    ((search_col_a, search_row_a), (search_col_b, search_row_b));
+                            }
                         }
                     }
                 }
             }
-        }
-        if shortest_distance < usize::MAX {
-            let ((col_a, row_a), (col_b, row_b)) = best_pair;
-            for col in col_a.min(col_b)..=col_a.max(col_b) {
-                self.cave.grid[level][row_a][col] = TILE_FLOOR;
-            }
-            for row in row_a.min(row_b)..=row_a.max(row_b) {
-                self.cave.grid[level][row][col_b] = TILE_FLOOR;
+            if shortest_distance < usize::MAX {
+                let ((col_a, row_a), (col_b, row_b)) = best_pair;
+                for col in col_a.min(col_b)..=col_a.max(col_b) {
+                    self.cave.grid[level][row_a][col] = TILE_FLOOR;
+                }
+                for row in row_a.min(row_b)..=row_a.max(row_b) {
+                    self.cave.grid[level][row][col_b] = TILE_FLOOR;
+                }
             }
         }
     }

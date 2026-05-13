@@ -7,10 +7,10 @@ fn main() {
     let seed = 42;
 
     let config = map::GeneratorConfig {
-        fill_confidence: 50,
-        wall_threshold: 6,
-        floor_threshold: 3,
-        smooth_iterations: 6,
+        fill_confidence: 40,
+        wall_threshold: 5,
+        floor_threshold: 2,
+        smooth_iterations: 4,
         dead_end_count: 10,
     };
 

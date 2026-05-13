@@ -20,7 +20,7 @@ ros/src/cave_robot_node  ←→  ROS 2 topics  ←→  Gazebo
         (rclrs)
 ```
 
-- **Cave generation** — seeded cellular automata with region connection
+- **Cave generation** — 2D cellular automata per z-slice with 3D ramp connectivity
 - **Pathfinding** — D\* Lite for forward navigation, A\* for return
 - **SLAM** — state estimation from LIDAR data for return navigation
 - **ROS bridge** — `rclrs` node subscribes to LIDAR scans, publishes velocity commands

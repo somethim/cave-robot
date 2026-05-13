@@ -1,6 +1,6 @@
 use super::Map;
 use rand::rngs::StdRng;
-use rand::RngExt;
+use rand::RngExt as _;
 use shared::{TILE_FLOOR, TILE_WALL};
 
 impl Map {
@@ -23,7 +23,7 @@ impl Map {
 
         for row in 0..height {
             for col in 0..width {
-                self.grid2[row][col] = TILE_WALL;
+                self.grid2[level][row][col] = TILE_WALL;
             }
         }
 

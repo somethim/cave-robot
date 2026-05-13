@@ -2,8 +2,9 @@ pub mod cellular;
 pub mod connect;
 pub mod dead_ends;
 pub mod flood_fill;
+pub mod holes;
 pub mod init;
-pub mod stairs;
+pub mod ramps;
 pub mod start_end;
 
 use rand::SeedableRng;
@@ -16,6 +17,7 @@ pub struct GeneratorConfig {
     pub floor_threshold: u32,
     pub smooth_iterations: usize,
     pub dead_end_count: usize,
+    pub hole_count: usize,
 }
 
 impl GeneratorConfig {
@@ -26,6 +28,7 @@ impl GeneratorConfig {
             floor_threshold: shared::env_or("CAVE_FLOOR_THRESHOLD", 3),
             smooth_iterations: shared::env_or("CAVE_SMOOTH_ITERATIONS", 6),
             dead_end_count: shared::env_or("CAVE_DEAD_END_COUNT", 8),
+            hole_count: shared::env_or("CAVE_HOLE_COUNT", 4),
         }
     }
 }
@@ -38,7 +41,7 @@ impl Default for GeneratorConfig {
 
 pub struct Map {
     pub cave: Cave,
-    pub(crate) grid2: Vec<Vec<u8>>,
+    pub(crate) grid2: Vec<Vec<Vec<u8>>>,
     pub(crate) config: GeneratorConfig,
 }
 
@@ -51,7 +54,7 @@ impl Map {
     ) -> Self {
         Self {
             cave: Cave::new(size_x, size_y, size_z),
-            grid2: vec![vec![TILE_FLOOR; size_x]; size_y],
+            grid2: vec![vec![vec![TILE_FLOOR; size_x]; size_y]; size_z],
             config,
         }
     }
@@ -66,10 +69,9 @@ impl Map {
             self.connect_regions(level);
             self.carve_dead_ends(level, &mut rng, self.config.dead_end_count);
         }
-        self.place_stairs(&mut rng);
-        for level in 0..self.cave.size_z {
-            self.connect_regions(level);
-        }
+        self.place_ramps(&mut rng);
+        self.place_holes(&mut rng, self.config.hole_count);
+        self.connect_regions_3d();
         self.pick_start_end(&mut rng);
     }
 }

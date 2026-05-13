@@ -66,7 +66,8 @@ data, building a SLAM map from scratch.
 
 ## ROS Bridge
 
-The ROS ↔ Rust bridge uses `rclrs` (v0.7), the official ROS 2 Rust client library. Message Rust bindings are auto-generated at build time from the original `.msg` files using `rosidl_rust`.
+The ROS ↔ Rust bridge uses `rclrs` (v0.7), the official ROS 2 Rust client library. Message Rust bindings are
+auto-generated at build time from the original `.msg` files using `rosidl_rust`.
 
 ### Key Topics
 
@@ -78,6 +79,7 @@ The ROS ↔ Rust bridge uses `rclrs` (v0.7), the official ROS 2 Rust client libr
 ### Build System
 
 The `cave_robot_node` is an `ament_cargo` package built by `colcon`. Colcon:
+
 1. Generates Rust bindings for all message packages (`sensor_msgs`, etc.)
 2. Writes a `.cargo/config.toml` that patches the yanked crates.io message crates with the locally generated versions
 3. Builds `cave_robot_node` with those local bindings
@@ -86,14 +88,17 @@ The `cave_robot_node` is an `ament_cargo` package built by `colcon`. Colcon:
 
 ### Forward (Start → End): D* Lite
 
-The drone assumes all unknown cells are traversable. As LIDAR sweeps reveal walls and open space, D\* Lite efficiently repairs only the affected portion of the path rather than replanning from scratch. This gives real-time performance in partially known environments.
+The drone assumes all unknown cells are traversable. As LIDAR sweeps reveal walls and open space, D\* Lite efficiently
+repairs only the affected portion of the path rather than replanning from scratch. This gives real-time performance in
+partially known environments.
 
 ### Return (End → Start): A\*
 
-After the forward journey, the drone has a fully explored map built by SLAM. With complete knowledge, A\* computes the optimal shortest path back to start. No LIDAR is available.
+After the forward journey, the drone has a fully explored map built by SLAM. With complete knowledge, A\* computes the
+optimal shortest path back to start. No LIDAR is available.
 
 ### 3D Pathfinding
 
 Both D\* Lite and A\* operate on a 26-connected 3D voxel grid (x, y, z). The
-drone moves freely in 3D space — ramps and vertical shafts replace stair
-teleports. See [generation.md](generation.md) for the 3D voxel cave design.
+drone moves freely in 3D space — ramps connect z-slices, replacing stair
+teleports. See [generation.md](generation.md) for the cave design.

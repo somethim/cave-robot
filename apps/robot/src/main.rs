@@ -9,5 +9,5 @@ fn main() {
         cave.size_x, cave.size_y, cave.size_z
     );
     println!("start: {:?}, end: {:?}", cave.start, cave.end);
-    println!("stairs: {:?}", cave.stairs);
+    println!("ramps connect {} levels", cave.size_z.saturating_sub(1));
 }

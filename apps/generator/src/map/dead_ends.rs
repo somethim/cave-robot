@@ -1,7 +1,8 @@
 use super::Map;
 use rand::rngs::StdRng;
 use rand::RngExt;
-use shared::{TILE_FLOOR, TILE_WALL};
+use shared::TILE_FLOOR;
+use shared::TILE_WALL;
 
 impl Map {
     pub(crate) fn carve_dead_ends(&mut self, level: usize, rng: &mut StdRng, count: usize) {

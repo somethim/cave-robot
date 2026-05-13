@@ -1,7 +1,7 @@
 use super::Map;
 use rand::rngs::StdRng;
 use rand::RngExt;
-use shared::TILE_FLOOR;
+use shared::is_passable;
 
 impl Map {
     pub(crate) fn pick_start_end(&mut self, rng: &mut StdRng) {
@@ -9,14 +9,14 @@ impl Map {
         for level in 0..self.cave.size_z {
             for row in 1..self.cave.size_y - 1 {
                 for col in 1..self.cave.size_x - 1 {
-                    if self.cave.grid[level][row][col] == TILE_FLOOR {
+                    if is_passable(self.cave.grid[level][row][col]) {
                         floors.push((col, row, level));
                     }
                 }
             }
         }
         if floors.is_empty() {
-            eprintln!("warning: no floor tiles found, using default start/end");
+            eprintln!("warning: no passable tiles found, using default start/end");
             self.cave.start = (1, 1, 0);
             self.cave.end = (1, 1, 0);
             return;

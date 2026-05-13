@@ -6,6 +6,6 @@ authors.workspace = true
 description = "Cave map generator — uses a Seeded Cellular Automata with Region Connection algorithm to procedurally generate cave systems from a random seed, then selects valid start and end points."
 
 [dependencies]
-rand = "0.10.1"
-shared = { path = "../../crates/shared" }
-serde_json = "1"
+shared.workspace = true
+rand.workspace = true
+serde_json.workspace = true

@@ -52,6 +52,7 @@ tmp/
 ros/build/
 ros/install/
 ros/log/
+ros/.cargo/
 
 # Python bytecode / cache
 __pycache__/

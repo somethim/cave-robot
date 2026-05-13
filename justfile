@@ -1,5 +1,9 @@
 build:
-    cargo build --workspace
+    cargo build --workspace --release
+
+start:
+    ./target/release/generator
+    ./target/release/robot
 
 check:
     cargo check --workspace
@@ -14,22 +18,24 @@ robot:
     cargo run -p robot
 
 dev:
-	cargo run -p generator
-	cargo run -p robot
+    cargo run -p generator
+    cargo run -p robot
+
+ros-bootstrap:
+    ./ros/scripts/ros-bootstrap
 
 ros-build:
-    cd ros && colcon build --symlink-install
+    ./ros/scripts/ros-build
+
+ros-robot:
+    ./ros/scripts/ros-robot
 
 ros-clean:
-    rm -rf ros/build ros/install ros/log
+    rm -rf ros/build ros/install ros/log ros/.cargo
 
 ros-rebuild:
     just ros-clean
-    just ros-build
-
-ros-source:
-    @echo "Run this manually:"
-    @echo "source ros/install/setup.bash"
+    just ros-bootstrap
 
 sim:
     ./ros/scripts/ros-run ros2 launch cave_robot_gazebo gazebo.launch.py

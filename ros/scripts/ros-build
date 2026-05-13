@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -eo pipefail
+cd "$(dirname "$0")/.."
+
+if [ ! -f install/setup.sh ]; then
+    echo "Deps not built yet. Run: just ros-bootstrap"
+    exit 1
+fi
+
+echo "[...] Sourcing ROS 2 Jazzy..."
+. /opt/ros/jazzy/setup.bash
+echo "[ OK ] ROS 2 ready"
+
+echo "[...] Building your ROS packages..."
+colcon build --symlink-install --paths src
+echo "[ OK ] Build complete"

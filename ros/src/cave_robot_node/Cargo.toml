@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "cave_robot_node"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rclrs = "0.7"
+sensor_msgs = "*"
+geometry_msgs = "*"
+std_msgs = "*"
+builtin_interfaces = "*"

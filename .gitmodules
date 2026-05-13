@@ -1,0 +1,27 @@
+[submodule "ros/deps/common_interfaces"]
+	path = ros/deps/common_interfaces
+	url = https://github.com/ros2/common_interfaces.git
+	branch = jazzy
+[submodule "ros/deps/example_interfaces"]
+	path = ros/deps/example_interfaces
+	url = https://github.com/ros2/example_interfaces.git
+	branch = jazzy
+[submodule "ros/deps/rcl_interfaces"]
+	path = ros/deps/rcl_interfaces
+	url = https://github.com/ros2/rcl_interfaces.git
+	branch = jazzy
+[submodule "ros/deps/rosidl_core"]
+	path = ros/deps/rosidl_core
+	url = https://github.com/ros2/rosidl_core.git
+	branch = jazzy
+[submodule "ros/deps/rosidl_defaults"]
+	path = ros/deps/rosidl_defaults
+	url = https://github.com/ros2/rosidl_defaults.git
+	branch = jazzy
+[submodule "ros/deps/unique_identifier_msgs"]
+	path = ros/deps/unique_identifier_msgs
+	url = https://github.com/ros2/unique_identifier_msgs.git
+	branch = jazzy
+[submodule "ros/deps/rosidl_rust"]
+	path = ros/deps/rosidl_rust
+	url = https://github.com/ros2-rust/rosidl_rust.git

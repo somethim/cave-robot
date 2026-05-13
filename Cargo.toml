@@ -8,6 +8,13 @@ members = [
     "crates/pathfinding",
 ]
 
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+dotenvy = "0.15"
+rand = "0.10.1"
+serde_json = "1"
+shared = { path = "crates/shared" }
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

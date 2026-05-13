@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -eo pipefail
+cd "$(dirname "$0")/.."
+
+echo "=== Bootstrap: building external ROS deps ==="
+
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "ROS 2 Jazzy not found. Run inside distrobox."
+    exit 1
+fi
+
+# Ensure submodules
+if [ ! -d deps/rosidl_rust ]; then
+    git submodule update --init --recursive
+fi
+
+# Ignore test_msgs (depends on test_interface_files not in workspace)
+touch deps/rcl_interfaces/test_msgs/COLCON_IGNORE
+
+echo "[...] Sourcing ROS 2 Jazzy..."
+. /opt/ros/jazzy/setup.bash
+echo "[ OK ] ROS 2 ready"
+
+echo "[...] Building external deps..."
+colcon build --symlink-install --paths deps
+echo "[ OK ] External deps built"
+
+echo ""
+echo "Now run: just ros-build"

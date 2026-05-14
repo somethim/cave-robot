@@ -29,8 +29,7 @@
 │       ├── cave_robot_msgs/       # Custom ROS 2 messages
 │       └── cave_robot_node/       # ROS-integrated Rust node (rclrs)
 ├── Cargo.toml            # Rust workspace root (non-ROS code)
-├── Justfile              # Convenience commands
-└── distrobox-installed-pkgs  # Reference list of distrobox packages
+└── justfile              # Convenience commands
 ```
 
 ## Data Flow
@@ -50,7 +49,7 @@ generator → cave.json → SDF world → Gazebo (simulates LIDAR)
                                           ↓
                                cave_robot_node (rclrs)
                                     ↓           ↓
-                              shared/slam   shared/pathfinding
+                              crates/slam   crates/pathfinding
                               (occupancy     (D* Lite forward,
                                grid)         A* return)
                                     ↓

@@ -6,6 +6,7 @@ members = [
     "apps/generator",
     "crates/shared",
     "crates/pathfinding",
+    "crates/slam",
 ]
 
 [workspace.dependencies]

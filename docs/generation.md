@@ -106,7 +106,7 @@ component.
 
 ### 6. Start/end selection (`pick_start_end`)
 
-Two distinct passable voxels (floor or ramp) are chosen uniformly at random
+Two distinct passable voxels (floor, ramp, or hole) are chosen uniformly at random
 from the entire 3D volume as `S` (start) and `E` (end). Since the 3D
 reconnection guarantees a single connected component, a path always exists
 between them.

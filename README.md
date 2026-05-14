@@ -13,9 +13,9 @@ The bridge between Rust navigation logic and ROS 2 / Gazebo uses [`rclrs`](https
 
 ```
 apps/generator  →  crates/shared  →  apps/robot  (offline / JSON mode)
-                     ↓
-crates/pathfinding ← crates/slam
-                     ↓
+                     ↓          ↓
+           crates/slam   crates/pathfinding
+                     ↓          ↓
 ros/src/cave_robot_node  ←→  ROS 2 topics  ←→  Gazebo
         (rclrs)
 ```
@@ -44,8 +44,4 @@ ros/src/cave_robot_node  ←→  ROS 2 topics  ←→  Gazebo
   by Patel — practical introduction to A* and related algorithms
 - [A* and D* Lecture](https://www.cs.cmu.edu/~motionplanning/lecture/AppH-astar-dstar_howie.pdf)
   (CMU) — covers both A* and D* in one appendix
-- [D* Lite](https://aaai.org/papers/00476-aaai02-072-d-lite/) by Koenig &
-  Likhachev — incremental replanning for partially known environments
-- [A* Search Algorithm](https://doi.org/10.1109/TSSC.1968.300136) by Hart,
-  Nilsson & Raphael — optimal pathfinding on fully known maps
 - [`rclrs`](https://docs.rs/rclrs) — ROS 2 Rust client library

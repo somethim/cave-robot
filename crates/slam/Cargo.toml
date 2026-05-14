@@ -1,0 +1,8 @@
+[package]
+name = "slam"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "SLAM state estimation for cave navigation — provides particle filter / EKF implementations for building an occupancy map from LIDAR scans during forward exploration."
+
+[dependencies]

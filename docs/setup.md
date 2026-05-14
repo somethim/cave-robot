@@ -16,7 +16,7 @@ sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
   -o /usr/share/keyrings/ros-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 sudo apt update
-sudo apt install -y ros-jazzy-desktop python3-colcon-common-extensions
+sudo apt install -y ros-jazzy-desktop python3-colcon-common-extensions ros-jazzy-test-msgs ros-jazzy-test-interface-files
 
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -106,10 +106,26 @@ Python that runs `colcon`. If mise is active:
 pip install colcon-cargo colcon-ros-cargo catkin_pkg lark
 ```
 
-### `test_msgs` fails to build
+### `test_msgs` required at link time
 
-`test_msgs` depends on `test_interface_files` which is not in the workspace.
-The build script (`ros-bootstrap`) suppresses it automatically.
+`rclrs`'s build script (`ament_rs`) discovers `test_msgs` from the system and
+generates link directives for it. If missing, linking `cave_robot_node` fails
+with `unable to find library -ltest_msgs__rosidl_*`.
+
+**Solution:** Install the apt packages:
+```bash
+sudo apt install ros-jazzy-test-msgs ros-jazzy-test-interface-files
+```
+The bootstrap script (`ros-bootstrap`) still creates `COLCON_IGNORE` in the
+local `test_msgs` submodule to avoid building it in the workspace — the system
+package is used instead.
+
+### `--paths src` produces no output (colcon 0.20.1)
+
+With `colcon-core >= 0.20.1`, passing `--paths src` (a directory) may silently
+produce no output and skip all packages. Use `--paths src/*` (shell glob) or
+`--packages-select <name>` instead. The project's `ros-build` script handles
+this automatically.
 
 ### `just` uses `sh`, ROS scripts need `bash`
 
@@ -128,6 +144,12 @@ The `rclrs` API may differ between versions. If compile errors occur, check:
 - `create_subscription` takes 2 generic params (omit turbofish, let inference work)
 - `create_publisher` takes only topic name (no QoS argument in the basic API)
 - Timers may not exist on `Node` directly
+
+### `cargo-ament-build` uses prefix-per-package install layout
+
+`cargo-ament-build` installs to `install/<pkg>/` (prefix-per-package), not the
+merged `install/share/` layout that `ament_cmake` packages use. The build
+verification script checks both layouts.
 
 ## Git Submodules
 

@@ -7,6 +7,7 @@ start:
 
 check:
     cargo check --workspace
+    cargo clippy --workspace -- -D warnings
 
 test:
     cargo test --workspace

@@ -37,8 +37,8 @@ impl Map {
 
                 let root_a = find_root(&mut parent, neighbor_regions[0] as usize);
                 let mut all_same = true;
-                for i in 1..distinct_count as usize {
-                    if find_root(&mut parent, neighbor_regions[i] as usize) != root_a {
+                for &region in &neighbor_regions[1..distinct_count as usize] {
+                    if find_root(&mut parent, region as usize) != root_a {
                         all_same = false;
                         break;
                     }
@@ -49,8 +49,8 @@ impl Map {
 
                 self.cave.grid[level][row][col] = TILE_FLOOR;
                 let union_root = find_root(&mut parent, neighbor_regions[0] as usize);
-                for i in 0..distinct_count as usize {
-                    let sub = find_root(&mut parent, neighbor_regions[i] as usize);
+                for &region in &neighbor_regions[0..distinct_count as usize] {
+                    let sub = find_root(&mut parent, region as usize);
                     parent[sub] = union_root;
                 }
             }
@@ -66,6 +66,7 @@ impl Map {
             let mut best = usize::MAX;
             let mut best_a = (0, 0);
             let mut best_b = (0, 0);
+            #[allow(clippy::needless_range_loop)]
             for ra in 1..height - 1 {
                 for ca in 1..width - 1 {
                     if self.cave.grid[level][ra][ca] != TILE_FLOOR {
@@ -155,8 +156,8 @@ impl Map {
 
                     let root_a = find_root(&mut parent, neighbor_regions[0] as usize);
                     let mut all_same = true;
-                    for i in 1..distinct_count as usize {
-                        if find_root(&mut parent, neighbor_regions[i] as usize) != root_a {
+                    for &region in &neighbor_regions[1..distinct_count as usize] {
+                        if find_root(&mut parent, region as usize) != root_a {
                             all_same = false;
                             break;
                         }
@@ -167,8 +168,8 @@ impl Map {
 
                     self.cave.grid[z][y][x] = TILE_FLOOR;
                     let union_root = find_root(&mut parent, neighbor_regions[0] as usize);
-                    for i in 0..distinct_count as usize {
-                        let sub = find_root(&mut parent, neighbor_regions[i] as usize);
+                    for &region in &neighbor_regions[0..distinct_count as usize] {
+                        let sub = find_root(&mut parent, region as usize);
                         parent[sub] = union_root;
                     }
                 }

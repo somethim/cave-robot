@@ -11,7 +11,10 @@ fn main() {
         cave.size_x, cave.size_y, cave.size_z
     );
     println!("start: {:?}, end: {:?}", cave.start, cave.end);
-    println!("ramps connect {} levels", cave.size_z.saturating_sub(TILE_RAMP as usize));
+    println!(
+        "ramps connect {} levels",
+        cave.size_z.saturating_sub(TILE_RAMP as usize)
+    );
 
     for z in 0..cave.size_z {
         let holes = cave.grid[z]

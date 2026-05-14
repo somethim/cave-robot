@@ -12,14 +12,17 @@ echo "[...] Sourcing ROS 2 Jazzy..."
 echo "[ OK ] ROS 2 ready"
 
 echo "[...] Building your ROS packages..."
-colcon build --symlink-install --paths src
+colcon build --symlink-install --paths src/* --continue-on-error
 echo "[ OK ] Build complete"
 
 # Post-build: verify expected packages were installed
+# (colcon may use merged layout install/share/ or prefix-per-package install/<pkg>/)
 echo "[...] Verifying packages..."
 missing=""
 for pkg in cave_robot_node; do
-    if [ ! -d "install/share/$pkg" ]; then
+    if [ -d "install/share/$pkg" ] || [ -d "install/$pkg/share/$pkg" ]; then
+        : # found
+    else
         missing="$missing $pkg"
     fi
 done
@@ -32,9 +35,11 @@ if [ -n "$missing" ]; then
     echo "  - Rust compilation error (check output above for cargo errors)"
     echo "  - Missing ROS dependencies in package.xml"
     echo ""
-    echo "Current installed packages:"
-    ls install/share/ 2>/dev/null || echo "  (none)"
+    echo "Installed packages (install/share/)"
+    ls install/share/ 2>/dev/null || echo "  (none — merged layout)"
+    echo "Installed packages (install/*/share/)"
+    ls -d install/*/share/*/ 2>/dev/null || echo "  (none — prefix layout)"
     exit 1
 fi
 echo "[ OK ] All packages present"
-echo "  $(ls install/share/ | tr '\n' ' ')"
+echo "  $(ls -d install/*/share/*/ 2>/dev/null || ls install/share/ 2>/dev/null | tr '\n' ' ')"

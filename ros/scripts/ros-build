@@ -14,3 +14,27 @@ echo "[ OK ] ROS 2 ready"
 echo "[...] Building your ROS packages..."
 colcon build --symlink-install --paths src
 echo "[ OK ] Build complete"
+
+# Post-build: verify expected packages were installed
+echo "[...] Verifying packages..."
+missing=""
+for pkg in cave_robot_node; do
+    if [ ! -d "install/share/$pkg" ]; then
+        missing="$missing $pkg"
+    fi
+done
+if [ -n "$missing" ]; then
+    echo ""
+    echo "WARNING: some packages were NOT built:${missing}"
+    echo ""
+    echo "Common causes:"
+    echo "  - colcon-cargo plugin missing (run: just ros-bootstrap to check)"
+    echo "  - Rust compilation error (check output above for cargo errors)"
+    echo "  - Missing ROS dependencies in package.xml"
+    echo ""
+    echo "Current installed packages:"
+    ls install/share/ 2>/dev/null || echo "  (none)"
+    exit 1
+fi
+echo "[ OK ] All packages present"
+echo "  $(ls install/share/ | tr '\n' ' ')"

@@ -81,11 +81,26 @@ new message dependency.
 
 ## Known Issues
 
+### Distrobox shares home — pip packages leak to host
+
+Distrobox mounts your home directory into the container. Running `pip install`
+inside the distrobox also adds packages to the host. This is harmless but
+untidy. To isolate:
+
+```bash
+# Option A: install inside a distrobox-specific venv
+python3 -m venv ~/.ros-venv
+echo "source ~/.ros-venv/bin/activate" >> ~/.bashrc  # inside .bashrc's distrobox block
+pip install colcon-cargo colcon-ros-cargo catkin_pkg lark
+
+# Option B: just accept it — packages are small and won't affect the host
+```
+
 ### `mise` Python overrides system Python
 
 ROS 2 Jazzy expects system Python 3.12, but `mise` (if installed) sets Python
-3.14. The colcon Rust plugins and `lark` must be installed for the active
-Python:
+3.14. The colcon Rust plugins and `lark` must be installed for the **same**
+Python that runs `colcon`. If mise is active:
 
 ```bash
 pip install colcon-cargo colcon-ros-cargo catkin_pkg lark

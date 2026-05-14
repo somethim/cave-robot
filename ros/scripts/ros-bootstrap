@@ -21,6 +21,23 @@ echo "[...] Sourcing ROS 2 Jazzy..."
 . /opt/ros/jazzy/setup.bash
 echo "[ OK ] ROS 2 ready"
 
+# Pre-flight: check colcon-cargo (required for ament_cargo packages)
+echo "[...] Checking colcon-cargo..."
+if ! python3 -c "from colcon_cargo.package_identification.cargo import CargoPackageIdentification" 2>/dev/null; then
+    echo ""
+    echo "ERROR: colcon-cargo plugin not found for the active Python."
+    echo ""
+    echo "The cave_robot_node package uses the 'ament_cargo' build type, which"
+    echo "requires colcon-cargo and colcon-ros-cargo. Install them with:"
+    echo ""
+    echo "    pip install colcon-cargo colcon-ros-cargo lark"
+    echo ""
+    echo "If you're inside a distrobox, these will be installed to your shared"
+    echo "home directory (~/.local). This is expected."
+    exit 1
+fi
+echo "[ OK ] colcon-cargo available"
+
 echo "[...] Building external deps..."
 colcon build --symlink-install --paths deps
 echo "[ OK ] External deps built"

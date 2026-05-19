@@ -43,25 +43,23 @@ generator → cave.json → robot (reads from disk)
 ### ROS 2 mode
 
 ```
-generator → cave.json → SDF world → Gazebo (simulates LIDAR)
-                                          ↓
-                                    /scan (LaserScan)
-                                          ↓
-                               cave_robot_node (rclrs)
-                                    ↓           ↓
-                              crates/slam   crates/pathfinding
-                              (occupancy     (D* Lite forward,
-                               grid)         A* return)
-                                    ↓
-                                    /cmd_vel (Twist)
-                                    ↓
-                               Gazebo (drone moves)
+generator → cave.json → generated SDF world + embedded robot → Gazebo
+                                                          ↓
+                                         ros_gz bridge + cave_robot_node (target)
 ```
 
 The cave generator runs once to produce `cave.json`. On the ROS path,
 `cave.json` is converted to a Gazebo SDF world — the robot **never reads
 `cave.json` directly**. It discovers the environment purely through `/scan`
 data, building a SLAM map from scratch.
+
+Current implementation status:
+
+- `cave.json` is converted into a generated Gazebo world under
+  `ros/src/cave_robot_gazebo/worlds/generated/`
+- The generated world embeds the robot model at `cave.start`
+- Gazebo visual inspection works through `just sim`
+- The ROS topic bridge and full simulation bringup are not finished yet
 
 ## ROS Bridge
 

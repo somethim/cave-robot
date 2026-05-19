@@ -30,7 +30,7 @@ ros/src/cave_robot_node  ←→  ROS 2 topics  ←→  Gazebo
 | File                                         | What                                 |
 |----------------------------------------------|--------------------------------------|
 | [docs/generation.md](docs/generation.md)     | Cave generation algorithm            |
-| [docs/gazebo.md](docs/gazebo.md)             | Gazebo world pipeline plan           |
+| [docs/gazebo.md](docs/gazebo.md)             | Current Gazebo world pipeline        |
 | [docs/setup.md](docs/setup.md)               | Build, install, and usage            |
 | [docs/architecture.md](docs/architecture.md) | Full project structure and crate map |
 

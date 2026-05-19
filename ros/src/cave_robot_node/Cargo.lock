@@ -1090,6 +1090,10 @@ name = "actionlib_msgs"
 version = "5.3.7"
 
 [[patch.unused]]
+name = "actuator_msgs"
+version = "0.0.1"
+
+[[patch.unused]]
 name = "composition_interfaces"
 version = "2.0.3"
 
@@ -1102,6 +1106,10 @@ name = "example_interfaces"
 version = "0.12.0"
 
 [[patch.unused]]
+name = "gps_msgs"
+version = "2.1.2"
+
+[[patch.unused]]
 name = "lifecycle_msgs"
 version = "2.0.3"
 
@@ -1112,6 +1120,10 @@ version = "0.33.10"
 [[patch.unused]]
 name = "map_msgs"
 version = "2.4.1"
+
+[[patch.unused]]
+name = "marine_acoustic_msgs"
+version = "2.1.0"
 
 [[patch.unused]]
 name = "nav_msgs"
@@ -1134,6 +1146,10 @@ name = "rmw_dds_common"
 version = "3.1.1"
 
 [[patch.unused]]
+name = "ros_gz_interfaces"
+version = "1.0.22"
+
+[[patch.unused]]
 name = "rosbag2_interfaces"
 version = "0.26.10"
 
@@ -1144,6 +1160,10 @@ version = "2.0.3"
 [[patch.unused]]
 name = "shape_msgs"
 version = "5.3.7"
+
+[[patch.unused]]
+name = "simulation_interfaces"
+version = "1.5.0"
 
 [[patch.unused]]
 name = "statistics_msgs"
@@ -1166,6 +1186,10 @@ name = "tf2_msgs"
 version = "0.36.20"
 
 [[patch.unused]]
+name = "theora_image_transport"
+version = "4.0.6"
+
+[[patch.unused]]
 name = "trajectory_msgs"
 version = "5.3.7"
 
@@ -1180,6 +1204,10 @@ version = "2.0.3"
 [[patch.unused]]
 name = "unique_identifier_msgs"
 version = "2.5.0"
+
+[[patch.unused]]
+name = "vision_msgs"
+version = "4.1.1"
 
 [[patch.unused]]
 name = "visualization_msgs"

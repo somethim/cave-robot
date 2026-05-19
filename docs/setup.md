@@ -16,7 +16,7 @@ sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
   -o /usr/share/keyrings/ros-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 sudo apt update
-sudo apt install -y ros-jazzy-desktop python3-colcon-common-extensions ros-jazzy-test-msgs ros-jazzy-test-interface-files
+sudo apt install -y ros-jazzy-desktop python3-colcon-common-extensions ros-jazzy-test-msgs ros-jazzy-test-interface-files ros-jazzy-ros-gz ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge mesa-utils
 
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -62,6 +62,7 @@ just ros-bootstrap
 
 ```bash
 just generate    # Generate cave JSON
+just generate-world  # Convert cave.json into a Gazebo world
 just robot       # Run offline robot (reads cave.json)
 just dev         # Both in sequence
 ```
@@ -72,12 +73,18 @@ just dev         # Both in sequence
 just ros-bootstrap   # Build external message packages (first time / after dep changes)
 just ros-build       # Build only your ROS packages (incremental)
 just ros-robot       # Run the ROS-integrated node
-just sim             # Launch Gazebo simulation
+just generate-world  # Refresh ros/src/cave_robot_gazebo/worlds/generated/cave.world
+just sim             # Launch Gazebo simulation with GUI-friendly software rendering defaults
+just sim-dev         # Generate a fresh cave, rebuild the world, rebuild ROS, launch Gazebo
 just bringup         # Full robot system
 ```
 
 Iteration: `just ros-build` → `just ros-robot`. Only re-bootstrap when adding a
 new message dependency.
+
+Current Gazebo note: `just sim` loads the generated cave world and embedded
+robot for visual inspection. The ROS/Gazebo topic bridge and full `bringup`
+launch are still incomplete.
 
 ## Known Issues
 

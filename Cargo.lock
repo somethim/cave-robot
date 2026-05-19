@@ -63,6 +63,7 @@ name = "generator"
 version = "0.1.0"
 dependencies = [
  "rand",
+ "serde",
  "serde_json",
  "shared",
 ]

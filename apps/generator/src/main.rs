@@ -1,5 +1,3 @@
-mod map;
-
 fn main() {
     shared::load_env();
 
@@ -8,8 +6,8 @@ fn main() {
     let size_z = shared::env_or("CAVE_SIZE_Z", 4usize);
     let seed = shared::env_or("CAVE_SEED", 42u64);
 
-    let config = map::GeneratorConfig::from_env();
-    let mut m = map::Map::with_config(size_x, size_y, size_z, config);
+    let config = generator::map::GeneratorConfig::from_env();
+    let mut m = generator::map::Map::with_config(size_x, size_y, size_z, config);
     m.generate(seed);
 
     let path_str = shared::env_or("CAVE_FILE", "cave.json".to_string());

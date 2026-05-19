@@ -13,13 +13,16 @@ test:
     cargo test --workspace
 
 generate:
-    cargo run -p generator
+    cargo run -p generator --bin generator
+
+generate-world:
+    cargo run -p generator --bin cave_to_world
 
 robot:
     cargo run -p robot
 
 dev:
-    cargo run -p generator
+    cargo run -p generator --bin generator
     cargo run -p robot
 
 ros-bootstrap:
@@ -40,6 +43,12 @@ ros-rebuild:
 
 sim:
     ./ros/scripts/ros-run ros2 launch cave_robot_gazebo gazebo.launch.py
+
+sim-dev:
+    just dev
+    just generate-world
+    just ros-build
+    just sim
 
 bringup:
     ./ros/scripts/ros-run ros2 launch cave_robot_bringup bringup.launch.py

@@ -1,0 +1,149 @@
+<?xml version="1.0"?>
+<!-- Cave-exploring quadcopter for Gazebo Harmonic.
+     - X-frame body with 4 colored rotors at corners.
+     - 3D GPU LiDAR mounted on top of the hub.
+     - Velocity control plugin: subscribes to /model/cave_robot/cmd_vel
+       (gz.msgs.Twist) and kinematically moves the drone.
+     - Pose publisher: streams to /model/cave_robot/pose. -->
+<sdf version="1.9">
+  <model name="cave_robot">
+    <static>false</static>
+    <pose>0 0 1 0 0 0</pose>
+
+    <link name="base_link">
+      <gravity>false</gravity>
+
+      <inertial>
+        <mass>1.5</mass>
+        <inertia>
+          <ixx>0.031</ixx><iyy>0.031</iyy><izz>0.063</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <!-- X-frame: two crossed boxes -->
+      <visual name="frame_diag1">
+        <pose>0 0 0 0 0 0.7854</pose>
+        <geometry><box><size>0.90 0.10 0.06</size></box></geometry>
+        <material>
+          <ambient>0.10 0.30 0.75 1</ambient>
+          <diffuse>0.10 0.30 0.75 1</diffuse>
+          <specular>0.20 0.20 0.20 1</specular>
+        </material>
+      </visual>
+      <visual name="frame_diag2">
+        <pose>0 0 0 0 0 -0.7854</pose>
+        <geometry><box><size>0.90 0.10 0.06</size></box></geometry>
+        <material>
+          <ambient>0.10 0.30 0.75 1</ambient>
+          <diffuse>0.10 0.30 0.75 1</diffuse>
+          <specular>0.20 0.20 0.20 1</specular>
+        </material>
+      </visual>
+      <!-- Central hub (dark box) -->
+      <visual name="hub">
+        <pose>0 0 0.06 0 0 0</pose>
+        <geometry><box><size>0.26 0.26 0.10</size></box></geometry>
+        <material>
+          <ambient>0.15 0.15 0.20 1</ambient>
+          <diffuse>0.15 0.15 0.20 1</diffuse>
+        </material>
+      </visual>
+      <!-- LED beacon under hub -->
+      <visual name="beacon">
+        <pose>0 0 -0.04 0 0 0</pose>
+        <geometry><sphere><radius>0.06</radius></sphere></geometry>
+        <material>
+          <ambient>1.00 0.10 0.10 1</ambient>
+          <diffuse>1.00 0.10 0.10 1</diffuse>
+          <emissive>0.80 0.05 0.05 1</emissive>
+        </material>
+      </visual>
+
+      <!-- 4 rotor discs at corners -->
+      <visual name="rotor_fl">
+        <pose>0.32 0.32 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.14</radius><length>0.025</length></cylinder></geometry>
+        <material>
+          <ambient>0.10 0.85 0.20 0.85</ambient>
+          <diffuse>0.10 0.85 0.20 0.85</diffuse>
+        </material>
+      </visual>
+      <visual name="rotor_fr">
+        <pose>0.32 -0.32 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.14</radius><length>0.025</length></cylinder></geometry>
+        <material>
+          <ambient>0.95 0.20 0.20 0.85</ambient>
+          <diffuse>0.95 0.20 0.20 0.85</diffuse>
+        </material>
+      </visual>
+      <visual name="rotor_bl">
+        <pose>-0.32 0.32 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.14</radius><length>0.025</length></cylinder></geometry>
+        <material>
+          <ambient>0.95 0.85 0.10 0.85</ambient>
+          <diffuse>0.95 0.85 0.10 0.85</diffuse>
+        </material>
+      </visual>
+      <visual name="rotor_br">
+        <pose>-0.32 -0.32 0.07 0 0 0</pose>
+        <geometry><cylinder><radius>0.14</radius><length>0.025</length></cylinder></geometry>
+        <material>
+          <ambient>0.20 0.45 0.95 0.85</ambient>
+          <diffuse>0.20 0.45 0.95 0.85</diffuse>
+        </material>
+      </visual>
+
+      <collision name="body_col">
+        <geometry><box><size>0.50 0.50 0.18</size></box></geometry>
+      </collision>
+
+      <!-- 3D GPU LiDAR (Gazebo Harmonic native sensor) -->
+      <sensor name="lidar_3d" type="gpu_lidar">
+        <topic>/cave_robot/lidar</topic>
+        <pose>0 0 0.18 0 0 0</pose>
+        <update_rate>10</update_rate>
+        <always_on>true</always_on>
+        <visualize>true</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>180</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159265</min_angle>
+              <max_angle> 3.14159265</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>16</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.52359878</min_angle>
+              <max_angle> 0.52359878</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.10</min>
+            <max>8.00</max>
+            <resolution>0.01</resolution>
+          </range>
+        </lidar>
+      </sensor>
+    </link>
+
+    <!-- Velocity control: listens to /model/cave_robot/cmd_vel (gz.msgs.Twist) -->
+    <plugin filename="gz-sim-velocity-control-system"
+            name="gz::sim::systems::VelocityControl">
+    </plugin>
+
+    <!-- Pose publisher: streams /model/cave_robot/pose for the bridge -->
+    <plugin filename="gz-sim-pose-publisher-system"
+            name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>false</publish_link_pose>
+      <publish_sensor_pose>false</publish_sensor_pose>
+      <publish_collision_pose>false</publish_collision_pose>
+      <publish_visual_pose>false</publish_visual_pose>
+      <publish_nested_model_pose>false</publish_nested_model_pose>
+      <use_pose_vector_msg>true</use_pose_vector_msg>
+      <update_frequency>30</update_frequency>
+    </plugin>
+  </model>
+</sdf>

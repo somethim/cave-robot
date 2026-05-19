@@ -3,14 +3,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if ! command -v colcon &> /dev/null; then
-    echo "ERROR: colcon not found. Install inside the distrobox:"
-    echo "  pip install colcon-cargo colcon-ros-cargo"
+if [ ! -f /opt/ros/jazzy/setup.bash ]; then
+    echo "ERROR: ROS 2 Jazzy not found at /opt/ros/jazzy. Run inside the distrobox."
     exit 1
 fi
 
-if [ ! -f /opt/ros/jazzy/setup.bash ]; then
-    echo "ERROR: ROS 2 Jazzy not found at /opt/ros/jazzy. Run inside the distrobox."
+if ! command -v colcon &> /dev/null; then
+    echo "ERROR: colcon not found. Install inside the distrobox:"
+    echo "  pip install colcon-cargo colcon-ros-cargo"
     exit 1
 fi
 

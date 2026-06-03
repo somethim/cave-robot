@@ -92,8 +92,8 @@ The drone can enter a hole from below and fly up into the pocket, but the
 pocket is surrounded by wall — only exit is back down through the hole.
 This creates a 3D dead end: vertical traversal that goes nowhere.
 
-`CAVE_HOLE_COUNT` (default 4) controls how many holes are placed across the
-entire volume.
+Holes are placed in every valid pocket across the entire volume, so no
+configuration parameter is needed.
 
 ### 5c. 3D reconnection (`connect_regions_3d`)
 
@@ -132,8 +132,9 @@ CAVE_FILL_CONFIDENCE=50    # % chance of wall in random init (0–100)
 CAVE_WALL_THRESHOLD=6      # 2D: wall neighbours (of 9) ≥ this → wall
 CAVE_FLOOR_THRESHOLD=3     # 2D: wall neighbours (of 9) ≤ this → floor
 CAVE_SMOOTH_ITERATIONS=6   # CA smoothing passes per slice
-CAVE_DEAD_END_COUNT=8      # dead-end tunnels carved per slice
-CAVE_HOLE_COUNT=4          # vertical dead-end shafts placed across all levels
+CAVE_DEAD_END_PERCENT=1    # % of floor tiles to turn into dead-end tunnels per slice
+CAVE_HOLE_PERCENT=1        # % of floor tiles to turn into vertical shafts across all levels
+
 ```
 
 ## JSON export

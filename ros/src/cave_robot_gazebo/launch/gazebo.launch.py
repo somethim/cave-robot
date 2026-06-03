@@ -80,11 +80,9 @@ def generate_launch_description():
             SetEnvironmentVariable("QT_X11_NO_MITSHM", "1"),
             SetEnvironmentVariable("WAYLAND_DISPLAY", ""),
             SetEnvironmentVariable("QT_OPENGL", os.environ.get("QT_OPENGL", "desktop")),
-            SetEnvironmentVariable("GZ_RENDER_ENGINE", os.environ.get("GZ_RENDER_ENGINE", "ogre2")),
             LogInfo(msg=["Launching Gazebo with world: ", LaunchConfiguration("world")]),
             LogInfo(msg=["Headless mode: ", LaunchConfiguration("headless")], condition=IfCondition(LaunchConfiguration("headless"))),
             LogInfo(msg=["GUI mode enabled"], condition=UnlessCondition(LaunchConfiguration("headless"))),
-            LogInfo(msg=["GZ_RENDER_ENGINE=", os.environ.get("GZ_RENDER_ENGINE", "ogre")]),
             LogInfo(msg=["QT_OPENGL=", os.environ.get("QT_OPENGL", "desktop")]),
             OpaqueFunction(function=_launch_gz),
         ]

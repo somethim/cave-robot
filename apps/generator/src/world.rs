@@ -1,8 +1,8 @@
 use serde::Serialize;
 use shared::{
     Cave, GAZEBO_LEVEL_SPACING_METERS, GAZEBO_VOXEL_SIZE_METERS, TILE_HOLE, TILE_RAMP,
-    TILE_WALL, allows_vertical, gazebo_cell_center,
-    gazebo_level_base_z, gazebo_robot_spawn_position, is_passable,
+    TILE_WALL, allows_vertical,
+    gazebo_level_base_z, gazebo_physical_z, is_passable,
 };
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -51,12 +51,20 @@ impl SlabBox {
             gazebo_level_base_z(self.z) + thickness / 2.0,
         )
     }
+
+    fn ceiling_pose(self, thickness: f64) -> (f64, f64, f64) {
+        (
+            (self.x as f64 + self.width as f64 / 2.0) * GAZEBO_VOXEL_SIZE_METERS,
+            (self.y as f64 + self.depth as f64 / 2.0) * GAZEBO_VOXEL_SIZE_METERS,
+            gazebo_level_base_z(self.z) + GAZEBO_LEVEL_SPACING_METERS - thickness / 2.0,
+        )
+    }
 }
 
 const SLAB_THICKNESS_METERS: f64 = 0.1;
 const RAMP_SURFACE_THICKNESS_METERS: f64 = 0.08;
 const RAMP_SURFACE_WIDTH_METERS: f64 = 0.7;
-const RAMP_HORIZONTAL_RUN_METERS: f64 = 1.0;
+const RAMP_HORIZONTAL_RUN_METERS: f64 = 2.0; // 45° slope with 2m level spacing
 const HOLE_SHAFT_WALL_THICKNESS_METERS: f64 = 0.08;
 
 const WALL_COLOR: &str = "0.55 0.55 0.55 1";
@@ -69,7 +77,8 @@ impl WallBox {
         (
             (self.x as f64 + self.width as f64 / 2.0) * GAZEBO_VOXEL_SIZE_METERS,
             (self.y as f64 + self.depth as f64 / 2.0) * GAZEBO_VOXEL_SIZE_METERS,
-            gazebo_level_base_z(self.z) + 0.5 * GAZEBO_VOXEL_SIZE_METERS,
+            // Centre of the full level height so walls span floor-to-ceiling
+            gazebo_level_base_z(self.z) + GAZEBO_LEVEL_SPACING_METERS / 2.0,
         )
     }
 
@@ -77,7 +86,7 @@ impl WallBox {
         (
             self.width as f64 * GAZEBO_VOXEL_SIZE_METERS,
             self.depth as f64 * GAZEBO_VOXEL_SIZE_METERS,
-            GAZEBO_VOXEL_SIZE_METERS,
+            GAZEBO_LEVEL_SPACING_METERS, // full floor-to-ceiling height
         )
     }
 }
@@ -118,7 +127,11 @@ pub fn write_world_from_cave(cave: &Cave, world_path: &Path) -> std::io::Result<
         world_file: world_path.display().to_string(),
         start_cell: cave.start,
         end_cell: cave.end,
-        robot_spawn_position: gazebo_robot_spawn_position(cave.start),
+        robot_spawn_position: (
+            cave.start.0 as f64 + 0.5,
+            cave.start.1 as f64 + 0.5,
+            gazebo_physical_z(cave.start.2 as f64),
+        ),
         merged_box_count: wall_boxes.len(),
     };
     let metadata_path = metadata_file_for(world_path);
@@ -199,53 +212,75 @@ where
 
 fn render_world(cave: &Cave, wall_boxes: &[WallBox], slab_boxes: &[SlabBox]) -> String {
     let mut output = String::new();
-    let (start_x, start_y, start_z) = gazebo_cell_center(cave.start);
-    let (end_x, end_y, end_z) = gazebo_cell_center(cave.end);
-    let (robot_x, robot_y, robot_z) = gazebo_robot_spawn_position(cave.start);
+    let start_x = cave.start.0 as f64 + 0.5;
+    let start_y = cave.start.1 as f64 + 0.5;
+    let start_z = gazebo_physical_z(cave.start.2 as f64);
+    let end_x = cave.end.0 as f64 + 0.5;
+    let end_y = cave.end.1 as f64 + 0.5;
+    let end_z = gazebo_physical_z(cave.end.2 as f64);
+    let robot_x = start_x;
+    let robot_y = start_y;
+    let robot_z = start_z;
     let robot_uri = robot_model_uri();
-    let world_center_x = cave.size_x as f64 * GAZEBO_VOXEL_SIZE_METERS / 2.0;
-    let world_center_y = cave.size_y as f64 * GAZEBO_VOXEL_SIZE_METERS / 2.0;
 
     output.push_str("<?xml version=\"1.0\"?>\n");
     output.push_str("<sdf version=\"1.9\">\n");
     output.push_str("  <world name=\"cave_world\">\n");
     output.push_str("    <gravity>0 0 0</gravity>\n");
-    output.push_str("    <physics name=\"1ms\" type=\"dart\">\n");
-    output.push_str("      <max_step_size>0.001</max_step_size>\n");
+    output.push_str("    <physics name=\"fast\" type=\"dart\">\n");
+    output.push_str("      <max_step_size>0.01</max_step_size>\n");
     output.push_str("      <real_time_factor>1.0</real_time_factor>\n");
     output.push_str("    </physics>\n");
     output.push_str("    <scene>\n");
-    output.push_str("      <ambient>0.85 0.85 0.85 1</ambient>\n");
-    output.push_str("      <background>0.68 0.73 0.82 1</background>\n");
+    output.push_str("      <ambient>0.12 0.12 0.14 1</ambient>\n");
+    output.push_str("      <background>0.04 0.04 0.06 1</background>\n");
     output.push_str("    </scene>\n");
-    output.push_str("    <light name=\"inspection_light\" type=\"directional\">\n");
+
+    // Dim directional fill light so in-cave point lights are the primary source
+    output.push_str("    <light name=\"fill_light\" type=\"directional\">\n");
     output.push_str("      <cast_shadows>false</cast_shadows>\n");
-    output.push_str("      <pose>0 0 20 0 0 0</pose>\n");
-    output.push_str("      <diffuse>1.0 1.0 1.0 1</diffuse>\n");
-    output.push_str("      <specular>0.35 0.35 0.35 1</specular>\n");
-    output.push_str("      <attenuation>\n");
-    output.push_str("        <range>500</range>\n");
-    output.push_str("        <constant>0.9</constant>\n");
-    output.push_str("        <linear>0.001</linear>\n");
-    output.push_str("        <quadratic>0.0001</quadratic>\n");
-    output.push_str("      </attenuation>\n");
-    output.push_str("      <direction>-0.35 0.15 -1</direction>\n");
+    output.push_str("      <pose>0 0 50 0 0 0</pose>\n");
+    output.push_str("      <diffuse>0.20 0.20 0.22 1</diffuse>\n");
+    output.push_str("      <specular>0.05 0.05 0.05 1</specular>\n");
+    output.push_str("      <attenuation><range>1000</range><constant>1</constant></attenuation>\n");
+    output.push_str("      <direction>0 0 -1</direction>\n");
     output.push_str("    </light>\n");
 
-    for level in 0..cave.size_z {
-        let light_z = gazebo_level_base_z(level) + 2.4;
-        let _ = writeln!(output, "    <light name=\"floor_light_{level}\" type=\"point\">");
-        output.push_str("      <cast_shadows>false</cast_shadows>\n");
-        let _ = writeln!(output, "      <pose>{world_center_x:.3} {world_center_y:.3} {light_z:.3} 0 0 0</pose>");
-        output.push_str("      <diffuse>1.0 1.0 1.0 1</diffuse>\n");
-        output.push_str("      <specular>0.15 0.15 0.15 1</specular>\n");
-        output.push_str("      <attenuation>\n");
-        output.push_str("        <range>120</range>\n");
-        output.push_str("        <constant>0.6</constant>\n");
-        output.push_str("        <linear>0.01</linear>\n");
-        output.push_str("        <quadratic>0.0005</quadratic>\n");
-        output.push_str("      </attenuation>\n");
-        output.push_str("    </light>\n");
+    // Distributed in-cave point lights — one per 8×8 cell grid sector per level,
+    // placed near the ceiling of the first passable cell found in each sector.
+    const LIGHT_GRID: usize = 8;
+    let mut light_idx = 0usize;
+    for z in 0..cave.size_z {
+        let lz = gazebo_level_base_z(z) + GAZEBO_LEVEL_SPACING_METERS - 0.25;
+        for gy in (0..cave.size_y).step_by(LIGHT_GRID) {
+            for gx in (0..cave.size_x).step_by(LIGHT_GRID) {
+                // Find the first passable cell in this grid sector
+                'sector: for dy in 0..LIGHT_GRID {
+                    for dx in 0..LIGHT_GRID {
+                        let cy = gy + dy;
+                        let cx = gx + dx;
+                        if cy < cave.size_y && cx < cave.size_x && is_passable(cave.grid[z][cy][cx]) {
+                            let lx = (cx as f64 + 0.5) * GAZEBO_VOXEL_SIZE_METERS;
+                            let ly = (cy as f64 + 0.5) * GAZEBO_VOXEL_SIZE_METERS;
+                            let _ = writeln!(output, "    <light name=\"cave_light_{light_idx}\" type=\"point\">");
+                            output.push_str("      <cast_shadows>false</cast_shadows>\n");
+                            let _ = writeln!(output, "      <pose>{lx:.3} {ly:.3} {lz:.3} 0 0 0</pose>");
+                            output.push_str("      <diffuse>1.0 0.92 0.78 1</diffuse>\n");
+                            output.push_str("      <specular>0.15 0.15 0.12 1</specular>\n");
+                            output.push_str("      <attenuation>\n");
+                            output.push_str("        <range>14</range>\n");
+                            output.push_str("        <constant>0.2</constant>\n");
+                            output.push_str("        <linear>0.08</linear>\n");
+                            output.push_str("        <quadratic>0.015</quadratic>\n");
+                            output.push_str("      </attenuation>\n");
+                            output.push_str("    </light>\n");
+                            light_idx += 1;
+                            break 'sector;
+                        }
+                    }
+                }
+            }
+        }
     }
     output.push_str("    <model name=\"cave_walls\">\n");
     output.push_str("      <static>true</static>\n");
@@ -264,15 +299,17 @@ fn render_world(cave: &Cave, wall_boxes: &[WallBox], slab_boxes: &[SlabBox]) -> 
     }
 
     for (index, slab_box) in slab_boxes.iter().copied().enumerate() {
-        let floor_pose = slab_box.floor_pose(SLAB_THICKNESS_METERS);
         let slab_size = slab_box.size(SLAB_THICKNESS_METERS);
-        append_box_geometry(
-            &mut output,
-            &format!("floor_{index}"),
-            floor_pose,
-            slab_size,
-            FLOOR_COLOR,
-        );
+
+        // Floor slab at the bottom of this level
+        let floor_pose = slab_box.floor_pose(SLAB_THICKNESS_METERS);
+        append_box_geometry(&mut output, &format!("floor_{index}"), floor_pose, slab_size, FLOOR_COLOR);
+
+        // Ceiling slab at the top of this level to seal each corridor (skip the roof of the top level)
+        if slab_box.z < cave.size_z - 1 {
+            let ceil_pose = slab_box.ceiling_pose(SLAB_THICKNESS_METERS);
+            append_box_geometry(&mut output, &format!("ceiling_{index}"), ceil_pose, slab_size, FLOOR_COLOR);
+        }
     }
 
     append_vertical_connectors(&mut output, cave);

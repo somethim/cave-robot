@@ -6,7 +6,7 @@ pub const TILE_HOLE: u8 = 3;
 // Gazebo cave generation conventions are fixed here so the generator, launch
 // code, and spawn logic all agree on scale and coordinate mapping.
 pub const GAZEBO_VOXEL_SIZE_METERS: f64 = 1.0;
-pub const GAZEBO_LEVEL_SPACING_METERS: f64 = 3.0;
+pub const GAZEBO_LEVEL_SPACING_METERS: f64 = 2.0;
 pub const GAZEBO_CELL_CENTER_Z_BIAS_METERS: f64 = 0.5;
 pub const GAZEBO_ROBOT_SPAWN_Z_OFFSET_METERS: f64 = 0.25;
 
@@ -19,13 +19,20 @@ pub fn gazebo_cell_center(cell: (usize, usize, usize)) -> (f64, f64, f64) {
     (
         (x as f64 + 0.5) * GAZEBO_VOXEL_SIZE_METERS,
         (y as f64 + 0.5) * GAZEBO_VOXEL_SIZE_METERS,
-        gazebo_level_base_z(z) + GAZEBO_CELL_CENTER_Z_BIAS_METERS * GAZEBO_VOXEL_SIZE_METERS,
+        z as f64,
     )
 }
 
 pub fn gazebo_robot_spawn_position(cell: (usize, usize, usize)) -> (f64, f64, f64) {
-    let (x, y, z) = gazebo_cell_center(cell);
-    (x, y, z + GAZEBO_ROBOT_SPAWN_Z_OFFSET_METERS)
+    gazebo_cell_center(cell)
+}
+
+/// Convert floor-index z to the physical Gazebo height (meters) at which the
+/// robot spawns (cell-center height plus chassis offset).
+pub fn gazebo_physical_z(floor: f64) -> f64 {
+    floor * GAZEBO_LEVEL_SPACING_METERS
+        + GAZEBO_CELL_CENTER_Z_BIAS_METERS * GAZEBO_VOXEL_SIZE_METERS
+        + GAZEBO_ROBOT_SPAWN_Z_OFFSET_METERS
 }
 
 pub fn is_passable(tile: u8) -> bool {

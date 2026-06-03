@@ -4,7 +4,11 @@ fn main() {
     let size_x = shared::env_or("CAVE_SIZE_X", 64usize);
     let size_y = shared::env_or("CAVE_SIZE_Y", 32usize);
     let size_z = shared::env_or("CAVE_SIZE_Z", 4usize);
-    let seed = shared::env_or("CAVE_SEED", 42u64);
+
+    let seed = match std::env::var("CAVE_SEED") {
+        Ok(v) if !v.is_empty() => v.parse::<u64>().unwrap_or_else(|_| rand::random()),
+        _ => rand::random(),
+    };
 
     let config = generator::map::GeneratorConfig::from_env();
     let mut m = generator::map::Map::with_config(size_x, size_y, size_z, config);

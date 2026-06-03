@@ -7,6 +7,7 @@ members = [
     "crates/shared",
     "crates/pathfinding",
     "crates/slam",
+    "crates/kalman",
 ]
 
 [workspace.dependencies]
@@ -15,6 +16,9 @@ dotenvy = "0.15"
 rand = "0.10.1"
 serde_json = "1"
 shared = { path = "crates/shared" }
+pathfinding = { path = "crates/pathfinding" }
+slam = { path = "crates/slam" }
+kalman = { path = "crates/kalman" }
 
 [workspace.package]
 version = "0.1.0"

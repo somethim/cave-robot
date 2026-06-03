@@ -6,3 +6,5 @@ authors.workspace = true
 description = "SLAM state estimation for cave navigation — provides particle filter / EKF implementations for building an occupancy map from LIDAR scans during forward exploration."
 
 [dependencies]
+shared.workspace = true
+rand.workspace = true

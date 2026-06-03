@@ -15,6 +15,22 @@ echo "[...] Building your ROS packages..."
 colcon build --symlink-install --paths src/* --continue-on-error
 echo "[ OK ] Build complete"
 
+echo "[...] Rebuilding ament_cargo packages (colcon cannot build them)..."
+for pkg_dir in src/*/; do
+    pkg_name=$(basename "$pkg_dir")
+    if grep -q '<build_type>ament_cargo</build_type>' "$pkg_dir/package.xml" 2>/dev/null; then
+        echo "  -> Manually building $pkg_name..."
+        (cd "$pkg_dir" && cargo build --release 2>&1 | sed 's/^/     /')
+        if [ -f "$pkg_dir/target/release/$pkg_name" ]; then
+            install_dir="install/$pkg_name/lib/$pkg_name/"
+            mkdir -p "$install_dir"
+            cp "$pkg_dir/target/release/$pkg_name" "$install_dir"
+            echo "  -> Copied $pkg_name binary to $install_dir"
+        fi
+    fi
+done
+echo "[ OK ] ament_cargo packages rebuilt"
+
 # Post-build: verify expected packages were installed
 # (colcon may use merged layout install/share/ or prefix-per-package install/<pkg>/)
 echo "[...] Verifying packages..."

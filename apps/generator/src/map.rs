@@ -16,8 +16,8 @@ pub struct GeneratorConfig {
     pub wall_threshold: u32,
     pub floor_threshold: u32,
     pub smooth_iterations: usize,
-    pub dead_end_count: usize,
-    pub hole_count: usize,
+    pub dead_end_percent: usize,
+    pub hole_percent: usize,
 }
 
 impl GeneratorConfig {
@@ -27,8 +27,8 @@ impl GeneratorConfig {
             wall_threshold: shared::env_or("CAVE_WALL_THRESHOLD", 6),
             floor_threshold: shared::env_or("CAVE_FLOOR_THRESHOLD", 3),
             smooth_iterations: shared::env_or("CAVE_SMOOTH_ITERATIONS", 6),
-            dead_end_count: shared::env_or("CAVE_DEAD_END_COUNT", 8),
-            hole_count: shared::env_or("CAVE_HOLE_COUNT", 4),
+            dead_end_percent: shared::env_or("CAVE_DEAD_END_PERCENT", 1),
+            hole_percent: shared::env_or("CAVE_HOLE_PERCENT", 1),
         }
     }
 }
@@ -67,10 +67,23 @@ impl Map {
                 self.step(level);
             }
             self.connect_regions(level);
-            self.carve_dead_ends(level, &mut rng, self.config.dead_end_count);
+            let floor_count = self.cave.grid[level]
+                .iter()
+                .flat_map(|row| row.iter())
+                .filter(|&&t| t == TILE_FLOOR)
+                .count();
+            let dead_end_count = (floor_count * self.config.dead_end_percent) / 100;
+            self.carve_dead_ends(level, &mut rng, dead_end_count);
         }
         self.place_ramps(&mut rng);
-        self.place_holes(&mut rng, self.config.hole_count);
+        let total_floor: usize = self.cave.grid
+            .iter()
+            .flat_map(|level| level.iter())
+            .flat_map(|row| row.iter())
+            .filter(|&&t| t == TILE_FLOOR)
+            .count();
+        let hole_count = (total_floor * self.config.hole_percent) / 100;
+        self.place_holes(&mut rng, hole_count);
         self.connect_regions_3d();
         self.pick_start_end(&mut rng);
     }

@@ -1,5 +1,21 @@
+all:
+    just build
+    just generate
+    just generate-world
+    just bringup
+
+dev:
+    just build
+    just generate
+    just generate-world
+    just sim
+
 build:
-    cargo build --workspace --release
+    cargo build --release --workspace
+    just ros-build
+
+sim:
+    ./ros/scripts/ros-run ros2 launch cave_robot_gazebo gazebo.launch.py
 
 start:
     ./target/release/generator
@@ -13,17 +29,16 @@ test:
     cargo test --workspace
 
 generate:
-    cargo run -p generator --bin generator
+    cargo build --release --workspace
+    ./target/release/generator
 
 generate-world:
-    cargo run -p generator --bin cave_to_world
+    cargo build --release --workspace
+    ./target/release/cave_to_world
 
 robot:
-    cargo run -p robot
-
-dev:
-    cargo run -p generator --bin generator
-    cargo run -p robot
+    cargo build --release --workspace
+    ./target/release/robot
 
 ros-bootstrap:
     ./ros/scripts/ros-bootstrap
@@ -40,15 +55,6 @@ ros-clean:
 ros-rebuild:
     just ros-clean
     just ros-bootstrap
-
-sim:
-    ./ros/scripts/ros-run ros2 launch cave_robot_gazebo gazebo.launch.py
-
-sim-dev:
-    just dev
-    just generate-world
-    just ros-build
-    just sim
 
 bringup:
     ./ros/scripts/ros-run ros2 launch cave_robot_bringup bringup.launch.py

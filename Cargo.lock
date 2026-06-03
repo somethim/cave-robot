@@ -128,6 +128,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "kalman"
+version = "0.1.0"
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -210,8 +214,12 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 name = "robot"
 version = "0.1.0"
 dependencies = [
+ "kalman",
+ "pathfinding",
+ "rand",
  "serde_json",
  "shared",
+ "slam",
 ]
 
 [[package]]
@@ -268,12 +276,17 @@ name = "shared"
 version = "0.1.0"
 dependencies = [
  "dotenvy",
+ "rand",
  "serde",
 ]
 
 [[package]]
 name = "slam"
 version = "0.1.0"
+dependencies = [
+ "rand",
+ "shared",
+]
 
 [[package]]
 name = "syn"

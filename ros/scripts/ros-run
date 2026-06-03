@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 set -e
-cd "$(dirname "$0")/.."
-. install/setup.sh
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/../install/setup.sh"
 exec "$@"

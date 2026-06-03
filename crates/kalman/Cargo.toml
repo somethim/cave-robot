@@ -1,0 +1,6 @@
+[package]
+name = "kalman"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Extended Kalman Filter for blind dead-reckoning during the return phase."

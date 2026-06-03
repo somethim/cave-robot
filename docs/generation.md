@@ -1,169 +1,162 @@
-# Cave Generation Algorithm
+# Cave Generation
 
 ## Overview
 
-The generator uses a **hybrid 2D→3D approach**: each z-slice is independently
-generated as a 2D cave using Cellular Automata with Region Connection
-([RogueBasin reference](https://www.roguebasin.com/index.php/Cellular_Automata_Method_for_Generating_Random_Cave-Like_Levels)),
-then slices are connected vertically via ramps to form a single 3D traversable
-volume.
+The generator produces a 3-D voxel cave as a JSON file. Each horizontal z-slice
+is generated independently using a cellular automaton, then the slices are
+connected vertically through ramps and shafts. A connectivity pass guarantees
+the whole cave is reachable from any point.
 
-The cave is a 3D voxel volume of size `size_x × size_y × size_z` (default
-64×32×4, configurable via env vars). Each horizontal slice is a proper 2D cave
-with winding passages and rooms. Ramps at overlapping floor positions connect
-adjacent slices for 3D traversal.
+Default size: 64 × 32 × 4 cells (configurable via env vars). Each cell is 1 m × 1 m
+in Gazebo; levels are spaced 2 m apart vertically.
 
 ## Pipeline
 
 ```
 for each z-slice:
-    initmap(slice)          → random fill, x/y border walls
-    step(slice) × 6         → 2D cellular automaton (3×3 Moore)
-    connect_regions(slice)  → 4-directional flood fill + union-find
-    carve_dead_ends(slice)  → 8 dead-end tunnels
+    initmap(slice)            → random fill, solid border walls
+    step(slice) × 6           → 2-D cellular automaton (3×3 Moore neighbourhood)
+    connect_regions(slice)    → flood-fill + union-find wall breaching
+    carve_dead_ends(slice)    → short dead-end tunnels off existing edges
 
-place_ramps()               → mark overlapping floor as TILE_RAMP
-connect_regions_3d()        → 6-directional 3D flood fill + wall breaching
-pick_start_end()            → random start/end from entire volume
+place_ramps()                 → TILE_RAMP at overlapping floor positions
+place_holes()                 → TILE_HOLE vertical shafts through floor/ceiling
+connect_regions_3d()          → 6-directional 3-D flood-fill + wall breaching
+pick_start_end()              → random distinct passable cells
 ```
 
-### 1. Random fill (`initmap`, per slice)
+## Step-by-step
 
-For each z-slice, the interior (excluding the solid wall border on all 4 sides)
-is initialized with ~50% wall / ~50% floor using a seeded RNG. The border
-(x=0, x=max, y=0, y=max) is forced entirely to wall, enclosing the slice.
+### 1. Random fill (`initmap`)
 
-### 2. Cellular automaton smoothing (`step`, ×6 iterations, per slice)
+The interior (excluding the solid border on all four sides) is filled ~50 % wall
+/ ~50 % floor using a seeded RNG. The border is forced entirely to wall,
+enclosing the slice. The `fill_confidence` parameter controls the wall density.
 
-Each iteration applies a 3×3 Moore neighbourhood rule simultaneously to every
-cell:
+### 2. Cellular automaton smoothing (`step`, ×6)
 
-| Wall neighbours (of 9) | Result    |
-|------------------------|-----------|
-| ≥ 6                    | Wall      |
-| ≤ 3                    | Floor     |
-| 4 or 5                 | Unchanged |
+Each iteration applies a 3×3 Moore neighbourhood rule to every interior cell
+simultaneously (double-buffered):
 
-Six iterations of this rule carve the random noise into cave-like passages:
-walls become contiguous rock, floors form tunnels and caverns.
+| Wall neighbours (of 9) | Result |
+|---|---|
+| ≥ `wall_threshold` (default 6) | Wall |
+| ≤ `floor_threshold` (default 3) | Floor |
+| 4–5 | Unchanged |
 
-### 3. Region connection (`connect_regions`, per slice)
+Six passes turn random noise into organic blob shapes — contiguous rock with
+winding passages and open caverns.
 
-After CA smoothing, disconnected floor regions within a single slice may exist.
-This phase guarantees a single connected component per slice:
+### 3. Region connection (`connect_regions`)
 
-1. **Flood fill** — label each 4-directionally connected floor region with a
+After smoothing, a slice may contain multiple disconnected floor regions. This
+phase guarantees a single connected component:
+
+1. **Flood fill** — 4-directional BFS labels each connected floor region with a
    unique ID.
-2. **Union-find wall breaching** — scan every wall tile bordering 2+ distinct
-   floor regions, convert it to floor, and union the regions.
-3. **Manhattan corridor fallback** — if regions remain, find the closest pair
-   of floor tiles from different regions and carve an L-shaped corridor between
-   them. Repeats until one region remains.
+2. **Union-find wall breaching** — every wall cell that borders two or more
+   distinct floor regions is converted to floor. The regions are merged via
+   union-find with path compression. Runs in one pass.
+3. **Manhattan corridor fallback** — if disconnected regions remain after step 2
+   (possible when regions touch diagonally but not cardinally), the algorithm
+   finds the closest pair of floor cells across different regions by Manhattan
+   distance and carves an L-shaped corridor between them. Repeats up to 4096
+   times until one region remains.
 
-### 4. Dead-end carving (`carve_dead_ends`, per slice)
+### 4. Dead-end carving (`carve_dead_ends`)
 
-8 short tunnels are carved from cave edges into wall areas per slice:
+Adds exploration interest by punching short tunnels (length 2–4 cells) into
+unexplored wall areas:
 
-1. Collect all wall tiles adjacent to at least one floor tile (the "cave edge").
-2. Pick one at random and determine the direction away from the floor (into the
-   wall).
-3. Carve a straight tunnel of length 2–4 tiles in that direction.
+1. Collect all wall cells adjacent to at least one floor cell (the cave edge).
+2. Pick one at random; find the direction pointing away from the existing floor
+   (into the wall).
+3. Carve a straight tunnel of random length in that direction, stopping if the
+   edge is reached or an existing floor cell is hit.
 
-### 5. Ramp placement (`place_ramps`, 3D)
+The count is `dead_end_percent % of floor cells per slice` (default 1 %).
 
-For each adjacent z-slice pair `(z, z+1)`:
+### 5. Ramp placement (`place_ramps`)
 
-1. Collect all `(x, y)` where both slices have `TILE_FLOOR` (overlapping floor).
-2. Pick one at random.
-3. Set both voxels to `TILE_RAMP`, enabling 3D traversal between the two levels
-   at that position.
+For each adjacent level pair `(z, z+1)`:
 
-If no overlap exists (rare), force a random position to floor on both levels.
+1. Find all `(x, y)` positions where both levels have `TILE_FLOOR` (overlapping
+   floor).
+2. Pick one at random and mark both voxels as `TILE_RAMP`.
 
-### 5b. Hole placement (`place_holes`)
+If no overlap exists (rare in narrow caves), a position is forced to floor on
+both levels. `TILE_RAMP` enables vertical traversal between the two levels in
+both pathfinding and the Gazebo physics.
 
-After ramps, dead-end vertical shafts are carved:
+### 6. Hole placement (`place_holes`)
 
-1. Scan every floor tile on level `z` where the tile directly above `(x, y, z+1)`
-   is wall AND all 4 horizontal neighbors of that upper tile are also wall.
-2. Convert both the floor tile and the upper pocket to `TILE_HOLE`.
+Vertical dead-end shafts are carved where the geometry allows it: a floor cell
+on level `z` whose cell directly above `(x, y, z+1)` is wall, **and** all four
+horizontal neighbours of that upper cell are also wall. Both cells are converted
+to `TILE_HOLE`. The drone can fly up into the pocket but cannot exit horizontally
+— it must descend the same way it entered.
 
-The drone can enter a hole from below and fly up into the pocket, but the
-pocket is surrounded by wall — only exit is back down through the hole.
-This creates a 3D dead end: vertical traversal that goes nowhere.
+Count is `hole_percent % of total floor cells` (default 1 %).
 
-Holes are placed in every valid pocket across the entire volume, so no
-configuration parameter is needed.
+### 7. 3-D reconnection (`connect_regions_3d`)
 
-### 5c. 3D reconnection (`connect_regions_3d`)
+After ramps are placed, the full 3-D volume is flood-filled using 6 cardinal
+directions. Vertical moves are only permitted through `TILE_RAMP` or `TILE_HOLE`
+voxels — `TILE_FLOOR` does not connect vertically. A second union-find wall
+breaching pass (identical to the 2-D version, extended to 6 neighbours) absorbs
+any disconnected islands. This guarantees the entire cave is reachable from any
+passable cell.
 
-After ramps are placed, a **6-directional 3D flood fill** runs on the entire
-volume. Vertical traversal (up/down) is only permitted through `TILE_RAMP`
-voxels — normal floor tiles do not connect vertically. A second pass of
-union-find wall breaching (6-neighbor) absorbs any orphan ramp islands into
-the main component, guaranteeing the full 3D cave is a single connected
-component.
+### 8. Start/end selection (`pick_start_end`)
 
-### 6. Start/end selection (`pick_start_end`)
-
-Two distinct passable voxels (floor, ramp, or hole) are chosen uniformly at random
-from the entire 3D volume as `S` (start) and `E` (end). Since the 3D
-reconnection guarantees a single connected component, a path always exists
-between them.
+Two distinct passable voxels are chosen uniformly at random from the interior of
+the full 3-D volume. Because the 3-D reconnection guarantees a single connected
+component, a path always exists between them.
 
 ## Tile legend
 
-| Char | Meaning         |
-|------|-----------------|
-| `.`  | Floor           |
-| `#`  | Wall            |
-| `%`  | Ramp            |
-| `O`  | Hole (dead-end) |
-| `S`  | Start point     |
-| `E`  | End point       |
+| Char | Constant | Meaning |
+|---|---|---|
+| `.` | `TILE_FLOOR` | Open passable cell |
+| `#` | `TILE_WALL` | Solid impassable wall |
+| `%` | `TILE_RAMP` | Passable + vertical connector |
+| `O` | `TILE_HOLE` | Passable + vertical shaft (dead-end) |
+| `S` | — | Start position |
+| `E` | — | End position |
 
 ## Configuration
 
-Generation parameters are set via `.env` at the project root:
+Generation parameters via `.env`:
 
 ```
 CAVE_FILE=cave.json
-CAVE_FILL_CONFIDENCE=50    # % chance of wall in random init (0–100)
-CAVE_WALL_THRESHOLD=6      # 2D: wall neighbours (of 9) ≥ this → wall
-CAVE_FLOOR_THRESHOLD=3     # 2D: wall neighbours (of 9) ≤ this → floor
-CAVE_SMOOTH_ITERATIONS=6   # CA smoothing passes per slice
-CAVE_DEAD_END_PERCENT=1    # % of floor tiles to turn into dead-end tunnels per slice
-CAVE_HOLE_PERCENT=1        # % of floor tiles to turn into vertical shafts across all levels
-
+CAVE_SIZE_X=64
+CAVE_SIZE_Y=32
+CAVE_SIZE_Z=4
+CAVE_SEED=<integer>               # omit for random seed
+CAVE_FILL_CONFIDENCE=50           # % wall in random init (0–100)
+CAVE_WALL_THRESHOLD=6             # neighbours ≥ this → wall in CA step
+CAVE_FLOOR_THRESHOLD=3            # neighbours ≤ this → floor in CA step
+CAVE_SMOOTH_ITERATIONS=6          # CA passes per slice
+CAVE_DEAD_END_PERCENT=1           # % of floor tiles → dead-end tunnels per slice
+CAVE_HOLE_PERCENT=1               # % of total floor tiles → vertical shafts
 ```
 
-## JSON export
+## JSON format
 
-Both `generator` and `robot` read `CAVE_FILE` from the environment (or
-`.env`). The JSON contains the full 3D grid, start, and end — ready for ROS
-nodes to read.
-
-```python
-import json
-cave = json.load(open("cave.json"))
-grid = cave["grid"]       # [z][y][x], 0=floor 1=wall 2=ramp 3=hole
-start = cave["start"]     # [x, y, z]
-end = cave["end"]
+```json
+{
+  "grid": [ [ [0,1,0,...], ... ], ... ],   // [z][y][x]: 0=floor 1=wall 2=ramp 3=hole
+  "size_x": 64,
+  "size_y": 32,
+  "size_z": 4,
+  "start": [13, 2, 0],                    // [x, y, z]
+  "end":   [5, 28, 2]
+}
 ```
 
 ## Determinism
 
-The same seed always produces the identical cave. This is guaranteed by
-`StdRng::seed_from_u64(seed)` with no external entropy sources.
-
-## 3D Pathfinding
-
-D\* Lite and A\* operate on a 26-connected 3D voxel grid. `TILE_RAMP` and
-`TILE_HOLE` voxels enable vertical traversal, while `TILE_FLOOR` voxels only
-connect horizontally. `TILE_WALL` voxels are impassable. See the `pathfinding`
-crate for the implementation.
-
-## Gazebo output
-
-The voxel surface can be converted to a 3D mesh via Marching Cubes or similar
-voxel-to-mesh conversion for Gazebo simulation.
+The same `CAVE_SEED` always produces identical output. `StdRng::seed_from_u64`
+is used with no external entropy sources. Omitting the seed picks a random one
+at startup (printed to stderr).

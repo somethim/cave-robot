@@ -1,37 +1,58 @@
 # Setup
 
-This project runs inside a **Distrobox** container with ROS 2 Jazzy and Rust.
+The project runs inside a **Distrobox** container with ROS 2 Jazzy and Rust.
+The host machine only needs Distrobox; everything else installs inside the
+container.
 
 ## Prerequisites
 
+### Create the distrobox
+
 ```bash
-# Create and enter the distrobox
 distrobox create --image ubuntu:24.04 --name cave-robot-ros-two
 distrobox enter cave-robot-ros-two
+```
 
-# Install ROS 2 Jazzy
-sudo apt update && sudo apt install -y software-properties-common
+### Install ROS 2 Jazzy
+
+```bash
+sudo apt update && sudo apt install -y software-properties-common curl
 sudo add-apt-repository -y universe
 sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
   -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) \
+  signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+  http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+  | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 sudo apt update
-sudo apt install -y ros-jazzy-desktop python3-colcon-common-extensions ros-jazzy-test-msgs ros-jazzy-test-interface-files ros-jazzy-ros-gz ros-jazzy-ros-gz-sim ros-jazzy-ros-gz-bridge mesa-utils
+sudo apt install -y \
+  ros-jazzy-desktop \
+  ros-jazzy-test-msgs \
+  ros-jazzy-test-interface-files \
+  ros-jazzy-ros-gz \
+  ros-jazzy-ros-gz-sim \
+  ros-jazzy-ros-gz-bridge \
+  python3-colcon-common-extensions \
+  mesa-utils
+```
 
-# Install Rust
+### Install Rust
+
+```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
+```
 
-# Install development tools
-sudo apt install -y build-essential cmake git just vim
+### Install build tools
 
-# Install colcon Rust plugins and missing Python deps
+```bash
+sudo apt install -y build-essential cmake git just
 pip install colcon-cargo colcon-ros-cargo catkin_pkg lark
 ```
 
-## Shell Configuration
+### Shell configuration
 
-Add to `~/.bashrc` inside the distrobox:
+Add to `~/.bashrc` inside the distrobox so ROS is sourced automatically:
 
 ```bash
 if [ -n "$DISTROBOX_ENTER_PATH" ] || [ -f /.dockerenv ]; then
@@ -41,125 +62,146 @@ if [ -n "$DISTROBOX_ENTER_PATH" ] || [ -f /.dockerenv ]; then
 fi
 ```
 
-Then reload: `source ~/.bashrc`
+Reload: `source ~/.bashrc`
 
-## Build
+## Clone and build
 
 ```bash
-git clone --recursive <repo-url> ~/cave-robot
-cd ~/cave-robot
+git clone --recursive <repo-url> ~/Projects/cave-robot
+cd ~/Projects/cave-robot
 
-# Non-ROS Rust workspace (generator, offline robot)
-cargo build --workspace
+# Non-ROS workspace (generator, offline robot, crates)
+cargo build --release --workspace
 
-# ROS 2 workspace — builds message bindings + your node
+# ROS 2 workspace — external message packages + cave_robot_node
 just ros-bootstrap
+```
+
+`ros-bootstrap` initialises submodules, builds external message packages, and
+builds the project's ROS packages. Only needed once or after adding new message
+dependencies.
+
+For incremental builds after code changes:
+
+```bash
+cargo build --release --workspace   # non-ROS crates
+just ros-build                      # cave_robot_node only
 ```
 
 ## Usage
 
-### Offline (no ROS)
+### Full stack (recommended)
 
 ```bash
-just generate    # Generate cave JSON
-just generate-world  # Convert cave.json into a Gazebo world
-just robot       # Run offline robot (reads cave.json)
-just dev         # Both in sequence
+just all
 ```
 
-### ROS 2 + Gazebo
+Runs: `build` → `generate` → `generate-world` → `bringup`
+
+### Step by step
 
 ```bash
-just ros-bootstrap   # Build external message packages (first time / after dep changes)
-just ros-build       # Build only your ROS packages (incremental)
-just ros-robot       # Run the ROS-integrated node
-just generate-world  # Refresh ros/src/cave_robot_gazebo/worlds/generated/cave.world
-just sim             # Launch Gazebo simulation with GUI-friendly software rendering defaults
-just sim-dev         # Generate a fresh cave, rebuild the world, rebuild ROS, launch Gazebo
-just bringup         # Full robot system
+just generate        # Generate cave.json (random or seeded)
+just generate-world  # Convert cave.json → Gazebo SDF world
+just bringup         # Launch Gazebo + ROS bridge + robot node
 ```
 
-Iteration: `just ros-build` → `just ros-robot`. Only re-bootstrap when adding a
-new message dependency.
-
-Current Gazebo note: `just sim` loads the generated cave world and embedded
-robot for visual inspection. The ROS/Gazebo topic bridge and full `bringup`
-launch are still incomplete.
-
-## Known Issues
-
-### Distrobox shares home — pip packages leak to host
-
-Distrobox mounts your home directory into the container. Running `pip install`
-inside the distrobox also adds packages to the host. This is harmless but
-untidy. To isolate:
+### Offline mode (no Gazebo)
 
 ```bash
-# Option A: install inside a distrobox-specific venv
-python3 -m venv ~/.ros-venv
-echo "source ~/.ros-venv/bin/activate" >> ~/.bashrc  # inside .bashrc's distrobox block
-pip install colcon-cargo colcon-ros-cargo catkin_pkg lark
+just generate
+just robot           # runs robot binary with simulated LiDAR
+```
 
-# Option B: just accept it — packages are small and won't affect the host
+Or with a custom cave:
+
+```bash
+CAVE_FILE=./tmp/cave.json ./target/release/robot
+```
+
+### Gazebo only (visual inspection)
+
+```bash
+just generate
+just generate-world
+just sim
+```
+
+### Environment variables
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CAVE_FILE` | `cave.json` | Path to cave JSON |
+| `CAVE_WORLD_FILE` | `ros/src/.../generated/cave.world` | Gazebo world output |
+| `CAVE_ROBOT_SDF_FILE` | `ros/src/.../urdf/cave_robot.sdf` | Drone SDF model |
+| `CAVE_SEED` | random | Generator seed (integer) |
+| `CAVE_SIZE_X` | `64` | Cave width (cells) |
+| `CAVE_SIZE_Y` | `32` | Cave depth (cells) |
+| `CAVE_SIZE_Z` | `4` | Cave levels |
+| `CAVE_ROBOT_BIN` | `./target/release/robot` | Robot binary path (node) |
+
+## justfile commands
+
+| Command | What |
+|---|---|
+| `just all` | build + generate + generate-world + bringup |
+| `just dev` | build + generate + generate-world + sim |
+| `just build` | cargo build --release + ros-build |
+| `just generate` | Run generator → cave.json |
+| `just generate-world` | Run cave_to_world → cave.world |
+| `just robot` | Run offline robot binary |
+| `just ros-bootstrap` | Init submodules + full colcon build |
+| `just ros-build` | Incremental colcon build (project packages only) |
+| `just ros-robot` | Run ROS robot node directly |
+| `just sim` | Launch Gazebo (GUI) with generated world |
+| `just bringup` | Full: Gazebo + bridge + robot node |
+| `just check` | cargo check + clippy |
+| `just test` | cargo test |
+
+## Known issues
+
+### `test_msgs` required at link time
+
+`rclrs` discovers `test_msgs` from the system and generates link directives.
+Install the apt packages:
+
+```bash
+sudo apt install ros-jazzy-test-msgs ros-jazzy-test-interface-files
 ```
 
 ### `mise` Python overrides system Python
 
-ROS 2 Jazzy expects system Python 3.12, but `mise` (if installed) sets Python
-3.14. The colcon Rust plugins and `lark` must be installed for the **same**
-Python that runs `colcon`. If mise is active:
+ROS 2 Jazzy expects system Python 3.12. If `mise` sets Python 3.14, install
+colcon plugins for the same Python that runs `colcon`:
 
 ```bash
 pip install colcon-cargo colcon-ros-cargo catkin_pkg lark
 ```
 
-### `test_msgs` required at link time
+### Distrobox shares home — pip packages reach the host
 
-`rclrs`'s build script (`ament_rs`) discovers `test_msgs` from the system and
-generates link directives for it. If missing, linking `cave_robot_node` fails
-with `unable to find library -ltest_msgs__rosidl_*`.
+`pip install` inside the distrobox also writes to the host. To isolate:
 
-**Solution:** Install the apt packages:
 ```bash
-sudo apt install ros-jazzy-test-msgs ros-jazzy-test-interface-files
+python3 -m venv ~/.ros-venv
+# add `source ~/.ros-venv/bin/activate` to the distrobox block in ~/.bashrc
+pip install colcon-cargo colcon-ros-cargo catkin_pkg lark
 ```
-The bootstrap script (`ros-bootstrap`) still creates `COLCON_IGNORE` in the
-local `test_msgs` submodule to avoid building it in the workspace — the system
-package is used instead.
 
-### `--paths src` produces no output (colcon 0.20.1)
+### Message crates yanked from crates.io
 
-With `colcon-core >= 0.20.1`, passing `--paths src` (a directory) may silently
-produce no output and skip all packages. Use `--paths src/*` (shell glob) or
-`--packages-select <name>` instead. The project's `ros-build` script handles
-this automatically.
+`sensor_msgs`, `geometry_msgs`, etc. are yanked on crates.io. They are built
+locally via `rosidl_rust` and patched into cargo resolution via
+`.cargo/config.toml` generated by colcon. This is handled automatically by
+`ros-bootstrap`.
+
+### `--paths src` silent failure (colcon ≥ 0.20.1)
+
+Passing a directory to `--paths` may silently skip all packages. Use
+`--paths src/*` or `--packages-select <name>`. The `ros-build` script handles
+this.
 
 ### `just` uses `sh`, ROS scripts need `bash`
 
 All ROS commands are wrapped in `ros/scripts/*` bash scripts to avoid shell
 compatibility issues.
-
-### Message crates yanked from crates.io
-
-`sensor_msgs`, `geometry_msgs`, `std_msgs`, `builtin_interfaces` are yanked on
-crates.io. They are built locally via `rosidl_rust` and patched into cargo's
-dependency resolution via `.cargo/config.toml` generated by colcon.
-
-### `rclrs` API changes
-
-The `rclrs` API may differ between versions. If compile errors occur, check:
-- `create_subscription` takes 2 generic params (omit turbofish, let inference work)
-- `create_publisher` takes only topic name (no QoS argument in the basic API)
-- Timers may not exist on `Node` directly
-
-### `cargo-ament-build` uses prefix-per-package install layout
-
-`cargo-ament-build` installs to `install/<pkg>/` (prefix-per-package), not the
-merged `install/share/` layout that `ament_cmake` packages use. The build
-verification script checks both layouts.
-
-## Git Submodules
-
-The ROS message repos and `rosidl_rust` code generator live in `ros/deps/` as
-git submodules. Clone with `--recursive` or run `just ros-bootstrap` (which
-initialises them automatically).

@@ -1,6 +1,7 @@
 use rclrs::*;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -32,15 +33,20 @@ fn main() -> Result<(), RclrsError> {
     let child_stdout = child.stdout.take().expect("failed to open robot stdout");
 
     let stdin_mutex = Arc::new(Mutex::new(child_stdin));
+    let robot_done = Arc::new(AtomicBool::new(false));
 
     // Gazebo LiDAR → LidarScan JSON → robot stdin
     // Pose is NOT embedded because the Gazebo PosePublisher reports the model
     // at (0,0,0) instead of the world <include><pose>.  The robot's built-in
     // dead-reckoning (proven by --self-scan) handles navigation correctly.
     let lidar_stdin = Arc::clone(&stdin_mutex);
+    let lidar_done = Arc::clone(&robot_done);
     let _lidar_sub = node.create_subscription::<sensor_msgs::msg::LaserScan, (sensor_msgs::msg::LaserScan,)>(
         "/cave_robot/lidar",
         move |msg: sensor_msgs::msg::LaserScan| {
+            if lidar_done.load(Ordering::Relaxed) {
+                return;
+            }
             let sanitise = |v: f32| { let r = v as f64; if r.is_finite() { r } else { 0.0 } };
             let ranges: Vec<f64> = msg.ranges.iter().map(|&r| sanitise(r).max(0.0)).collect();
             let angle_increment = sanitise(msg.angle_increment);
@@ -61,9 +67,11 @@ fn main() -> Result<(), RclrsError> {
             };
             let json = serde_json::to_string(&scan).expect("[NODE] serialise LidarScan");
             let mut stdin = lidar_stdin.lock().unwrap();
-            writeln!(stdin, "{}", json).unwrap_or_else(|e| {
-                eprintln!("[NODE] write scan to robot stdin: {e}");
-            });
+            if let Err(e) = writeln!(stdin, "{}", json) {
+                // Robot process exited — stop feeding it scans.
+                lidar_done.store(true, Ordering::Relaxed);
+                eprintln!("[NODE] robot pipe closed ({e}), stopping scan feed");
+            }
         },
     )?;
 
@@ -71,6 +79,7 @@ fn main() -> Result<(), RclrsError> {
         node.create_publisher::<geometry_msgs::msg::Twist>("/model/cave_robot/cmd_vel")?;
 
     // Read velocity commands from robot stdout → publish to Gazebo
+    let stdout_done = Arc::clone(&robot_done);
     let _stdout_thread = thread::spawn(move || {
         let reader = BufReader::new(child_stdout);
         for line in reader.lines() {
@@ -94,7 +103,8 @@ fn main() -> Result<(), RclrsError> {
                 }
             }
         }
-        eprintln!("[NODE] stdout thread exiting");
+        stdout_done.store(true, Ordering::Relaxed);
+        eprintln!("[NODE] robot finished — stdout closed");
     });
 
     eprintln!("[NODE] cave_robot_node: spinning (lidar→robot, robot→cmd_vel)…");

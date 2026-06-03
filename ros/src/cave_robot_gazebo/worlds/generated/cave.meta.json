@@ -2,19 +2,19 @@
   "voxel_size_meters": 1.0,
   "world_file": "./ros/src/cave_robot_gazebo/worlds/generated/cave.world",
   "start_cell": [
-    12,
-    7,
+    5,
+    13,
     0
   ],
   "end_cell": [
-    5,
-    3,
+    10,
+    2,
     0
   ],
   "robot_spawn_position": [
-    12.5,
-    7.5,
+    5.5,
+    13.5,
     0.75
   ],
-  "merged_box_count": 29
+  "merged_box_count": 35
 }

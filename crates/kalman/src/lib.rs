@@ -46,7 +46,7 @@ impl Ekf {
             x   + v * yaw.cos() * dt,
             y   + v * yaw.sin() * dt,
             z   + vz * dt,
-            yaw + omega * dt,
+            wrap_angle(yaw + omega * dt),
         ];
 
         // Linearised state-transition Jacobian
@@ -73,6 +73,55 @@ impl Ekf {
         self.cov = mat4_add(fpft, q);
     }
 
+    /// EKF measurement update with a full pose observation.
+    ///
+    /// Applies sequential scalar updates for each state dimension so no
+    /// 4×4 matrix inversion is required.  The yaw innovation is wrapped to
+    /// (−π, π] before being applied.
+    ///
+    /// * `pos_std` — 1-σ measurement noise for x/y/z (metres)
+    /// * `yaw_std` — 1-σ measurement noise for yaw (radians)
+    pub fn update(&mut self, x: f64, y: f64, z: f64, yaw: f64, pos_std: f64, yaw_std: f64) {
+        let measurements = [x, y, z, yaw];
+        let r = [
+            pos_std * pos_std,
+            pos_std * pos_std,
+            pos_std * pos_std,
+            yaw_std * yaw_std,
+        ];
+
+        for i in 0..4 {
+            let s = self.cov[i][i] + r[i];
+            if s < 1e-12 {
+                continue;
+            }
+            // Scalar Kalman gain (column vector K = P[:,i] / S)
+            let k = [
+                self.cov[0][i] / s,
+                self.cov[1][i] / s,
+                self.cov[2][i] / s,
+                self.cov[3][i] / s,
+            ];
+            // Innovation with yaw wrap-around for index 3
+            let innov = if i == 3 {
+                wrap_angle(measurements[3] - self.state[3])
+            } else {
+                measurements[i] - self.state[i]
+            };
+            for j in 0..4 {
+                self.state[j] += k[j] * innov;
+            }
+            // Covariance update: P = (I - K·H)·P  →  subtract outer product K·P[i,:]
+            let p_row = self.cov[i];
+            for j in 0..4 {
+                for l in 0..4 {
+                    self.cov[j][l] -= k[j] * p_row[l];
+                }
+            }
+        }
+        self.state[3] = wrap_angle(self.state[3]);
+    }
+
     /// RMS position uncertainty across x and y (metres, 1-σ).
     pub fn position_std(&self) -> f64 {
         ((self.cov[0][0] + self.cov[1][1]) * 0.5).sqrt()
@@ -82,6 +131,12 @@ impl Ekf {
     pub fn y(&self)   -> f64 { self.state[1] }
     pub fn z(&self)   -> f64 { self.state[2] }
     pub fn yaw(&self) -> f64 { self.state[3] }
+}
+
+fn wrap_angle(mut a: f64) -> f64 {
+    while a > std::f64::consts::PI { a -= 2.0 * std::f64::consts::PI; }
+    while a < -std::f64::consts::PI { a += 2.0 * std::f64::consts::PI; }
+    a
 }
 
 // ── 4×4 matrix helpers ──────────────────────────────────────────────────────

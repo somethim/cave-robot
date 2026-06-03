@@ -46,12 +46,12 @@ impl Default for LidarConfig {
         Self {
             num_rays_horizontal: 180,
             num_rays_vertical: 32,
-            max_range: 20.0,
+            max_range: 8.0,
             noise_stddev: 0.05,
             angle_min: -std::f64::consts::PI,
             angle_max: std::f64::consts::PI,
-            angle_min_vertical: -std::f64::consts::FRAC_PI_3,
-            angle_max_vertical: std::f64::consts::FRAC_PI_3,
+            angle_min_vertical: -0.6981317,
+            angle_max_vertical: 0.6981317,
         }
     }
 }

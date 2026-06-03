@@ -67,8 +67,20 @@ impl Slam {
         }
     }
 
-    /// Sensor model + resample + map update
+    /// Sensor model + resample + map update using SLAM's own pose estimate.
     pub fn update(&mut self, scan: &LidarScan) {
+        self.update_internal(scan, None);
+    }
+
+    /// Sensor model + resample + map update using a trusted external pose for
+    /// the map write-back (e.g. the EKF/Gazebo pose during the forward phase).
+    /// Particle weighting still uses each particle's own pose; only the map
+    /// update step is overridden with `map_pose`.
+    pub fn update_with_map_pose(&mut self, scan: &LidarScan, map_pose: Pose) {
+        self.update_internal(scan, Some(map_pose));
+    }
+
+    fn update_internal(&mut self, scan: &LidarScan, map_pose_override: Option<Pose>) {
         let n_h = scan.num_horizontal();
         let n_v = scan.num_vertical();
 
@@ -116,7 +128,8 @@ impl Slam {
         }
 
         self.resample();
-        self.update_map(scan);
+        let map_pose = map_pose_override.unwrap_or_else(|| self.estimated_pose());
+        self.update_map_at(scan, map_pose);
     }
 
     fn raycast(&self, origin: Pose, azimuth: f64, elevation: f64, max_range: f64) -> f64 {
@@ -182,8 +195,7 @@ impl Slam {
         self.particles = new_particles;
     }
 
-    fn update_map(&mut self, scan: &LidarScan) {
-        let pose = self.estimated_pose();
+    fn update_map_at(&mut self, scan: &LidarScan, pose: Pose) {
         let (x0, y0, z0) = pose.cell();
 
         let n_h = scan.num_horizontal();

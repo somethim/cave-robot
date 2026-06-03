@@ -3,7 +3,7 @@ use std::io::{self, BufRead};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use pathfinding::{astar, DStarLite, GridGraph, Node};
+use pathfinding::{astar, GridGraph, Node};
 use shared::robot::{LidarConfig, LidarScan, NavCommand, Pose, RobotMode, RobotState};
 use shared::Cave;
 
@@ -41,25 +41,24 @@ struct Robot {
     pose: Pose,
     state: RobotState,
     slam: slam::Slam,
+    /// EKF used during the forward phase: predicts from motor commands and
+    /// accepts Gazebo pose measurements to produce a fused estimate.
+    ekf: kalman::Ekf,
     explored: HashSet<(usize, usize, usize)>,
-    planner: DStarLite,
     path: Vec<Node>,
     path_index: usize,
     forward_done: bool,
-    end_cell_steps: usize,
-    wall_stuck_count: usize,
+    return_done: bool,
     recovery_phase: RecoveryPhase,
-    in_avoidance: bool,
-    avoid_steps_remaining: usize,
     best_target_dist2: f64,
     steps_no_progress: usize,
-    /// Counts consecutive steps of pure rotation with no forward movement.
-    /// Triggers a backup recovery when it exceeds the threshold.
     spin_steps: usize,
     /// Ring buffer of recently visited cells for loop/oscillation detection.
     recent_cells: VecDeque<(usize, usize, usize)>,
     return_initialized: bool,
     last_cmd: NavCommand,
+    /// dt of the most recent apply_command call — used for EKF prediction.
+    last_dt: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -80,19 +79,56 @@ impl Robot {
         let size_y = cave.size_y;
         let size_z = cave.size_z;
 
-        // Start with a fully-open graph — D* Lite assumes everything is
-        // passable until the LiDAR proves otherwise.  Walls are added
-        // incrementally via discover_obstacles() as the drone explores.
-        let graph = GridGraph::new(size_x, size_y, size_z);
+        // Full map known up-front — load all walls into the graph so A* has
+        // complete information without any incremental discovery.
+        let mut graph = GridGraph::new(size_x, size_y, size_z);
+        for z in 0..size_z {
+            for y in 0..size_y {
+                for x in 0..size_x {
+                    if !shared::is_passable(cave.grid[z][y][x]) {
+                        graph.set_passable(Node(x, y, z), false);
+                    }
+                }
+            }
+        }
+
+        // Weight passable cells by clearance from the nearest wall so A* routes
+        // through corridor centres rather than hugging walls.
+        let clearance = compute_clearance(&cave);
+        for z in 0..size_z {
+            for y in 0..size_y {
+                for x in 0..size_x {
+                    if shared::is_passable(cave.grid[z][y][x]) {
+                        let cost = match clearance[z][y][x] {
+                            1 => 6.0,  // adjacent to wall — strongly discouraged
+                            2 => 2.5,  // one-cell buffer — mildly expensive
+                            _ => 1.0,  // clear centre — free
+                        };
+                        graph.set_cost(Node(x, y, z), cost);
+                    }
+                }
+            }
+        }
 
         let (sx, sy, sz) = shared::gazebo_robot_spawn_position(start);
         let pose = Pose::new(sx, sy, sz, 0.0);
 
         let slam = slam::Slam::new(size_x, size_y, size_z, 200, pose);
 
+        // EKF for forward-phase localisation: tight initial uncertainty because
+        // we know the exact spawn position.
+        let ekf = kalman::Ekf::new(sx, sy, sz, 0.0, 0.05, 0.01);
+
         let start_node = Node(cave.start.0, cave.start.1, cave.start.2);
-        let end_node = Node(cave.end.0, cave.end.1, cave.end.2);
-        let planner = DStarLite::new(graph.clone(), start_node, end_node);
+        let end_node   = Node(cave.end.0,   cave.end.1,   cave.end.2);
+
+        let initial_path = astar(&graph, start_node, end_node)
+            .map(|(p, _)| p)
+            .unwrap_or_else(|| {
+                eprintln!("WARNING: no A* path from start to end at init time");
+                Vec::new()
+            });
+        eprintln!("[ROBOT] Initial A* path: {} cells", initial_path.len());
 
         let mut explored = HashSet::new();
         explored.insert(start);
@@ -108,37 +144,36 @@ impl Robot {
                 step: 0,
             },
             slam,
+            ekf,
             explored,
-            planner,
-            path: Vec::new(),
+            path: initial_path,
             path_index: 0,
             forward_done: false,
-            end_cell_steps: 0,
-            wall_stuck_count: 0,
+            return_done: false,
             recovery_phase: RecoveryPhase::None,
-            in_avoidance: false,
-            avoid_steps_remaining: 0,
             best_target_dist2: f64::MAX,
             steps_no_progress: 0,
             spin_steps: 0,
             recent_cells: VecDeque::with_capacity(30),
             return_initialized: false,
             last_cmd: NavCommand::stop(),
+            last_dt: 0.1,
         }
     }
 
     fn run_forward(&mut self) {
-        eprintln!("\n=== FORWARD PHASE: Start → End ===");
-
-        let init_path = self.planner.get_path();
-        if init_path.is_none() {
-            eprintln!("ERROR: No initial path from start to end");
+        if self.path.is_empty() {
+            eprintln!("ERROR: No A* path from start to end");
             return;
         }
-
-        self.path = init_path.unwrap();
-        eprintln!("Initial path length: {} cells", self.path.len());
-        self.path_index = 0;
+        let s = self.cave.start;
+        let e = self.cave.end;
+        eprintln!("\n===========================================");
+        eprintln!("Starting");
+        eprintln!("  start:  ({}, {}, {})", s.0, s.1, s.2);
+        eprintln!("  end:    ({}, {}, {})", e.0, e.1, e.2);
+        eprintln!("  planned steps: {}", self.path.len());
+        eprintln!("===========================================\n");
 
         loop {
             let scan = LidarScan::simulate(self.pose, &self.cave, &self.lidar_config);
@@ -172,29 +207,13 @@ impl Robot {
     }
 
     fn run_return(&mut self) {
-        eprintln!("\n=== RETURN PHASE: End → Start ===");
-
         self.state.mode = RobotMode::Return;
 
         let slam_grid = self.slam.map.to_passable_grid();
         let slam_graph = GridGraph::from_passable_grid(&slam_grid);
 
         let start_node = Node(self.cave.end.0, self.cave.end.1, self.cave.end.2);
-        let goal_node = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
-
-        let sg = self.cave.start;
-        eprintln!(
-            "slam map: start_cell=({},{},{}) passable={} prob={}",
-            sg.0, sg.1, sg.2,
-            slam_graph.is_passable(goal_node),
-            self.slam.map.probability(sg.0, sg.1, sg.2),
-        );
-        eprintln!(
-            "slam map: end_cell=({},{},{}) passable={} prob={}",
-            self.cave.end.0, self.cave.end.1, self.cave.end.2,
-            slam_graph.is_passable(start_node),
-            self.slam.map.probability(self.cave.end.0, self.cave.end.1, self.cave.end.2),
-        );
+        let goal_node  = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
 
         let result = astar(&slam_graph, start_node, goal_node);
         self.path = match result {
@@ -205,7 +224,14 @@ impl Robot {
             }
         };
 
-        eprintln!("Return path length: {} cells", self.path.len());
+        let e = self.cave.end;
+        let s = self.cave.start;
+        eprintln!("\n===========================================");
+        eprintln!("End reached, starting return");
+        eprintln!("  end:    ({}, {}, {})", e.0, e.1, e.2);
+        eprintln!("  start:  ({}, {}, {})", s.0, s.1, s.2);
+        eprintln!("  planned steps: {}", self.path.len());
+        eprintln!("===========================================\n");
         self.path_index = 0;
 
         loop {
@@ -244,19 +270,18 @@ impl Robot {
     }
 
     fn run_pipe(&mut self, self_scan: bool) {
-        eprintln!("[ROBOT] computing initial path from ({},{},{}) to ({},{},{})…",
-            self.cave.start.0, self.cave.start.1, self.cave.start.2,
-            self.cave.end.0, self.cave.end.1, self.cave.end.2);
-        let init_path = self.planner.get_path();
-        if init_path.is_none() {
-            eprintln!("[ROBOT] ERROR: no path found from start to end — check cave connectivity");
+        if self.path.is_empty() {
+            eprintln!("[ROBOT] ERROR: no A* path from start to end — check cave connectivity");
             return;
         }
-        self.path = init_path.unwrap();
-        self.path_index = 0;
-        eprintln!("[ROBOT] pipe mode started | path {} cells | initial pose ({:.2},{:.2},{:.2}) yaw={:.2}",
-            self.path.len(), self.pose.x, self.pose.y, self.pose.z, self.pose.yaw);
-        eprintln!("[ROBOT] path preview (first 5): {:?}", &self.path[..self.path.len().min(5)]);
+        let s = self.cave.start;
+        let e = self.cave.end;
+        eprintln!("\n===========================================");
+        eprintln!("Starting");
+        eprintln!("  start:  ({}, {}, {})", s.0, s.1, s.2);
+        eprintln!("  end:    ({}, {}, {})", e.0, e.1, e.2);
+        eprintln!("  planned steps: {}", self.path.len());
+        eprintln!("===========================================\n");
 
         if self_scan {
             // Shared state for real pose updates from the ROS node (via
@@ -314,7 +339,6 @@ impl Robot {
                 println!("{output}");
 
                 if self.forward_done {
-                    eprintln!("[ROBOT] Forward phase complete!");
                     break;
                 }
 
@@ -335,21 +359,17 @@ impl Robot {
                 return;
             }
 
-            eprintln!("[ROBOT] Computing return path from ({},{},{}) to ({},{},{}) via SLAM map…",
+            eprintln!("[ROBOT] Computing return path from ({},{},{}) to ({},{},{}) on known map…",
                 current_cell.0, current_cell.1, current_cell.2,
                 start_cell.0, start_cell.1, start_cell.2);
 
-            let slam_grid = self.slam.map.to_passable_grid();
-            let slam_graph = GridGraph::from_passable_grid(&slam_grid);
-
-            let goal_node = Node(start_cell.0, start_cell.1, start_cell.2);
+            let goal_node  = Node(start_cell.0,   start_cell.1,   start_cell.2);
             let start_node = Node(current_cell.0, current_cell.1, current_cell.2);
 
-            let result = pathfinding::astar(&slam_graph, start_node, goal_node);
-            let return_path = match result {
+            let return_path = match pathfinding::astar(&self.graph, start_node, goal_node) {
                 Some((p, _)) => p,
                 None => {
-                    eprintln!("[ROBOT] No return path found on SLAM map — staying put");
+                    eprintln!("[ROBOT] No return path found on known map — staying put");
                     let output = serde_json::json!({"linear_x":0.0,"linear_y":0.0,"linear_z":0.0,"angular_z":0.0});
                     println!("{output}");
                     return;
@@ -392,7 +412,7 @@ impl Robot {
                 if self.path_index >= self.path.len() {
                     eprintln!("[ROBOT] Return path exhausted at ({:.2},{:.2},{:.2}) — replanning…",
                         self.pose.x, self.pose.y, self.pose.z);
-                    let result = pathfinding::astar(&slam_graph, Node(cell.0, cell.1, cell.2), goal_node);
+                    let result = pathfinding::astar(&self.graph, Node(cell.0, cell.1, cell.2), goal_node);
                     match result {
                         Some((p, _)) => {
                             self.path = p;
@@ -540,8 +560,9 @@ impl Robot {
                 });
                 println!("{output}");
 
-                if self.forward_done {
-                    eprintln!("[ROBOT] Forward phase complete!");
+                if self.return_done {
+                    eprintln!("[ROBOT] Return phase complete — exiting pipe mode");
+                    break;
                 }
 
                 if self.state.step > 20000 {
@@ -569,67 +590,38 @@ impl Robot {
     fn process_scan(&mut self, scan: &LidarScan) -> NavCommand {
         self.state.step += 1;
 
-        // If the scan carries the actual pose (from the ROS node), use it
-        // directly instead of dead-reckoning, so navigation stays accurate.
+        // EKF is advanced in apply_command alongside dead-reckoning.
+        // Here we only do the measurement update when Gazebo pose is available,
+        // fusing it with the accumulated dead-reckoning to correct drift.
         let pose_source = if let Some(p) = scan.pose {
-            self.pose = p;
-            self.state.pose = p;
-            "gazebo"
+            self.ekf.update(p.x, p.y, p.z, p.yaw, 0.05, 0.02);
+            let fused = Pose::new(self.ekf.x(), self.ekf.y(), self.ekf.z(), self.ekf.yaw());
+            self.pose = fused;
+            self.state.pose = fused;
+            "ekf+gazebo"
         } else {
             "dead-reckoning"
         };
 
-        self.slam.update(scan);
+        // Use the accurate EKF/Gazebo pose for map updates so the SLAM
+        // occupancy grid is correct regardless of particle filter drift.
+        self.slam.update_with_map_pose(scan, self.pose);
 
         let cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
         self.explored.insert(cell);
 
         if !self.forward_done {
-            let discovered_new = self.discover_obstacles(scan);
-
-            if discovered_new {
-                // Only reset the path when the remaining route is actually
-                // blocked.  Replanning on every new discovery (which happens
-                // nearly every step with a 20 m LiDAR) throws away path_index
-                // progress and makes the robot restart from the current cell
-                // each time, causing it to loop back to the same waypoints.
-                let remaining_blocked = self.path_index >= self.path.len()
-                    || self.path[self.path_index..]
-                        .iter()
-                        .any(|n| !self.graph.is_passable(*n));
-
-                if remaining_blocked {
-                    let current_node = Node(cell.0, cell.1, cell.2);
-                    self.planner.move_start(current_node);
-                    self.path = match self.planner.get_path() {
-                        Some(p) => p,
-                        None => {
-                            eprintln!("[ROBOT] step {}: NO PATH after replanning! pos=({:.2},{:.2},{:.2})",
-                                self.state.step, self.pose.x, self.pose.y, self.pose.z);
-                            return NavCommand::stop();
-                        }
-                    };
-                    self.path_index = 0;
-                    eprintln!("[ROBOT] step {}: path blocked — replanned {} cells",
-                        self.state.step, self.path.len());
-                }
-            }
 
             {
                 let end = self.cave.end;
-                let cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
-                if cell == (end.0, end.1, end.2) {
-                    self.end_cell_steps += 1;
-                    if self.end_cell_steps >= 5 {
-                        eprintln!(
-                            "[ROBOT] step {}: reached END ({},{},{}) in {} steps",
-                            self.state.step, end.0, end.1, end.2, self.state.step
-                        );
-                        self.forward_done = true;
-                        return NavCommand::stop();
-                    }
-                } else {
-                    self.end_cell_steps = 0;
+                let (ex, ey, _) = shared::gazebo_cell_center((end.0, end.1, end.2));
+                let edx = ex - self.pose.x;
+                let edy = ey - self.pose.y;
+                // Use the same 0.5 m radius used for waypoint advancement so the
+                // end detection is consistent with how every other cell is "reached".
+                if edx * edx + edy * edy < 0.25 {
+                    self.forward_done = true;
+                    return NavCommand::stop();
                 }
             }
 
@@ -637,60 +629,41 @@ impl Robot {
 
             if self.path_index < self.path.len() {
                 let target = self.path[self.path_index];
-                let mut cmd = self.move_toward(target, scan);
 
                 let (tx, ty, tz) = shared::gazebo_cell_center((target.0, target.1, target.2));
                 let dx = tx - self.pose.x;
                 let dy = ty - self.pose.y;
                 let dz = tz - self.pose.z;
                 let dist2 = dx * dx + dy * dy + dz * dz;
-                if dist2 < 0.25 {
+                let path_just_advanced = dist2 < 0.25;
+                if path_just_advanced {
                     self.path_index += 1;
                     self.best_target_dist2 = f64::MAX;
                     self.steps_no_progress = 0;
                 }
 
-                if self.recovery_phase != RecoveryPhase::None {
-                    cmd = self.recovery_step();
-                } else if self.wall_too_close(scan) {
-                    self.avoid_steps_remaining = 5;
-                    if !self.in_avoidance {
-                        self.wall_stuck_count += 1;
-                        if self.wall_stuck_count >= 4 {
-                            self.recovery_phase = RecoveryPhase::Backup { remaining: 8 };
-                            cmd = self.recovery_step();
-                        } else {
-                            self.in_avoidance = true;
-                            cmd = self.avoid_obstacle(scan);
-                        }
-                    } else {
-                        cmd = self.avoid_obstacle(scan);
-                    }
-                } else if self.in_avoidance {
-                    self.avoid_steps_remaining -= 1;
-                    if self.avoid_steps_remaining == 0 {
-                        self.in_avoidance = false;
-                        self.wall_stuck_count = 0;
-                    } else {
-                        cmd = self.avoid_obstacle(scan);
-                    }
+                // Forward navigation: recovery overrides normal path-following.
+                // Reactive LiDAR avoidance is intentionally omitted — the
+                // clearance-weighted A* path already routes through corridor
+                // centres, so the path itself provides the obstacle margin.
+                let mut cmd = if self.recovery_phase != RecoveryPhase::None {
+                    self.recovery_step()
                 } else {
-                    self.wall_stuck_count = 0;
-                }
+                    self.move_toward_blind(target)
+                };
 
-                if self.recovery_phase == RecoveryPhase::None {
-                    // Track pure-spin steps separately — they don't advance dist2
-                    // so the standard no-progress counter never catches an infinite spin.
+                if self.recovery_phase == RecoveryPhase::None && !path_just_advanced {
                     let is_spinning = cmd.linear_x.abs() < 0.01 && cmd.angular_z.abs() > 0.01;
                     if is_spinning {
                         self.spin_steps += 1;
-                        if self.spin_steps >= 20 {
-                            eprintln!("[ROBOT] step {}: spinning for {} steps — backing up",
+                        if self.spin_steps >= 40 {
+                            eprintln!("[ROBOT] step {}: spinning for {} steps — backing up + replanning",
                                 self.state.step, self.spin_steps);
                             self.spin_steps = 0;
                             self.steps_no_progress = 0;
                             self.recovery_phase = RecoveryPhase::Backup { remaining: 12 };
                             cmd = self.recovery_step();
+                            self.replan_forward(cell);
                         }
                     } else {
                         self.spin_steps = 0;
@@ -699,32 +672,20 @@ impl Robot {
                             self.steps_no_progress = 0;
                         } else {
                             self.steps_no_progress += 1;
-                            if self.steps_no_progress >= 15 {
-                                eprintln!("[ROBOT] step {}: no progress for {} steps (dist={:.2}) – backing up",
+                            if self.steps_no_progress >= 30 {
+                                // Don't back up — just skip the stuck waypoint and
+                                // replan. Backing up moves the drone away from a target
+                                // it might be close to, making things worse.
+                                eprintln!("[ROBOT] step {}: no progress for {} steps (dist={:.2}) — skipping waypoint + replanning",
                                     self.state.step, self.steps_no_progress, dist2.sqrt());
-                                self.recovery_phase = RecoveryPhase::Backup { remaining: 10 };
-                                cmd = self.recovery_step();
+                                self.steps_no_progress = 0;
+                                self.best_target_dist2 = f64::MAX;
+                                if self.path_index + 1 < self.path.len() {
+                                    self.path_index += 1;
+                                }
+                                self.replan_forward(cell);
                             }
                         }
-                    }
-
-                    // Cell-revisit detection: if we've been in this cell 4+ times
-                    // recently the drone is looping — skip the waypoint and back off.
-                    let cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
-                    self.recent_cells.push_back(cell);
-                    if self.recent_cells.len() > 30 {
-                        self.recent_cells.pop_front();
-                    }
-                    let revisits = self.recent_cells.iter().filter(|&&c| c == cell).count();
-                    if revisits >= 8 && self.recovery_phase == RecoveryPhase::None {
-                        eprintln!("[ROBOT] step {}: cell ({},{},{}) visited {} times recently — skipping waypoint + backing up",
-                            self.state.step, cell.0, cell.1, cell.2, revisits);
-                        self.recent_cells.clear();
-                        if self.path_index + 1 < self.path.len() {
-                            self.path_index += 1;
-                        }
-                        self.recovery_phase = RecoveryPhase::Backup { remaining: 10 };
-                        cmd = self.recovery_step();
                     }
                 }
 
@@ -751,10 +712,20 @@ impl Robot {
                 return cmd;
             }
 
-            // Path exhausted but goal not reached — drive directly to the end cell
-            // rather than stopping, so a small overshoot doesn't stall the drone.
+            // Path exhausted.  If the planned path ended at the end cell the drone
+            // advanced past it within 0.5 m — that's the same "reached" standard
+            // used for every waypoint, so declare success.
             let end = self.cave.end;
             let end_node = pathfinding::Node(end.0, end.1, end.2);
+            if self.path.last() == Some(&end_node) {
+                eprintln!(
+                    "[ROBOT] step {}: path led to end cell and was exhausted — forward done",
+                    self.state.step
+                );
+                self.forward_done = true;
+                return NavCommand::stop();
+            }
+            // Path didn't end at the goal (shouldn't happen normally) — home directly.
             eprintln!(
                 "[ROBOT] step {:4} | pose=({:.2},{:.2},{:.2}) [{}] | path exhausted → homing to end ({},{},{})",
                 self.state.step,
@@ -774,135 +745,144 @@ impl Robot {
     }
 
     fn process_return_scan(&mut self, scan: &LidarScan) -> NavCommand {
+        // Keep refining the SLAM map during return (pose is NOT taken from
+        // SLAM — the particle filter never runs predict so it stays at spawn;
+        // we use self.pose = accurate EKF/Gazebo pose throughout).
+        self.slam.update(scan);
+
         if !self.return_initialized {
             self.return_initialized = true;
             self.state.mode = RobotMode::Return;
 
+            // Plan the return path on the SLAM-built occupancy map.
+            // Use self.pose (EKF/Gazebo) for the starting cell — not
+            // slam.estimated_pose() which is stuck at the spawn position.
             let slam_grid = self.slam.map.to_passable_grid();
             let slam_graph = GridGraph::from_passable_grid(&slam_grid);
+
+            let start_node   = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
             let current_cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
-            let start_node = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
             let current_node = Node(current_cell.0, current_cell.1, current_cell.2);
 
-            eprintln!(
-                "[ROBOT] Computing return path from ({},{},{}) to ({},{},{}) via SLAM map …",
-                current_cell.0, current_cell.1, current_cell.2,
-                self.cave.start.0, self.cave.start.1, self.cave.start.2,
-            );
-
-            let result = pathfinding::astar(&slam_graph, current_node, start_node);
-            self.path = match result {
-                Some((p, _)) => {
-                    eprintln!("[ROBOT] Return path: {} cells", p.len());
-                    p
-                }
+            self.path = match astar(&slam_graph, current_node, start_node) {
+                Some((p, _)) => p,
                 None => {
-                    eprintln!("[ROBOT] No return path found on SLAM map — stopping");
-                    return NavCommand::stop();
+                    eprintln!("[ROBOT] SLAM path failed, falling back to known map");
+                    let gaz_cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
+                    let gaz_node = Node(gaz_cell.0, gaz_cell.1, gaz_cell.2);
+                    match pathfinding::astar(&self.graph, gaz_node, start_node) {
+                        Some((p, _)) => p,
+                        None => {
+                            eprintln!("[ROBOT] No return path found — stopping");
+                            return NavCommand::stop();
+                        }
+                    }
                 }
             };
             self.path_index = 0;
+
+            let s = self.cave.start;
+            eprintln!("\n===========================================");
+            eprintln!("End reached, starting return");
+            eprintln!("  end pos:  ({:.2}, {:.2}, {:.2})", self.pose.x, self.pose.y, self.pose.z);
+            eprintln!("  start:    ({}, {}, {})", s.0, s.1, s.2);
+            eprintln!("  planned steps: {}", self.path.len());
+            eprintln!("===========================================\n");
         }
 
         let cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
 
-        if cell == self.cave.start {
-            eprintln!(
-                "[ROBOT] Reached START at ({},{},{}) in {} total steps",
-                cell.0, cell.1, cell.2, self.state.step
-            );
+        let (sx, sy, _) = shared::gazebo_cell_center(self.cave.start);
+        let sdx = sx - self.pose.x;
+        let sdy = sy - self.pose.y;
+        if sdx * sdx + sdy * sdy < 0.25 || cell == self.cave.start {
+            if !self.return_done {
+                self.return_done = true;
+                eprintln!(
+                    "[ROBOT] Reached START at ({},{},{}) in {} total steps",
+                    cell.0, cell.1, cell.2, self.state.step
+                );
+            }
             return NavCommand::stop();
         }
 
         if self.path_index >= self.path.len() {
-            eprintln!("[ROBOT] Return path exhausted — replanning …");
-            let slam_grid = self.slam.map.to_passable_grid();
-            let slam_graph = GridGraph::from_passable_grid(&slam_grid);
-            let start_node = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
+            eprintln!("[ROBOT] Return path exhausted — replanning on SLAM map …");
+            let start_node   = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
             let current_node = Node(cell.0, cell.1, cell.2);
-            let result = pathfinding::astar(&slam_graph, current_node, start_node);
-            self.path = match result {
+            let slam_grid  = self.slam.map.to_passable_grid();
+            let slam_graph = GridGraph::from_passable_grid(&slam_grid);
+            self.path = match astar(&slam_graph, current_node, start_node) {
                 Some((p, _)) => p,
                 None => {
-                    eprintln!("[ROBOT] Return replan failed — stopping");
-                    return NavCommand::stop();
+                    eprintln!("[ROBOT] SLAM replan failed, trying known map …");
+                    match pathfinding::astar(&self.graph, current_node, start_node) {
+                        Some((p, _)) => p,
+                        None => {
+                            eprintln!("[ROBOT] Return replan failed — stopping");
+                            return NavCommand::stop();
+                        }
+                    }
                 }
             };
             self.path_index = 0;
         }
 
         let target = self.path[self.path_index];
-        let mut cmd = self.move_toward(target, scan);
+        // Return phase uses pure heading control — no LiDAR-based avoidance.
+        // The A* path on the known map is already wall-free, and the 2D LaserScan
+        // coming from the ROS bridge has vertical angles hardcoded to 0 so it
+        // can't be trusted for reactive avoidance anyway.
+        let mut cmd = if self.recovery_phase != RecoveryPhase::None {
+            self.recovery_step()
+        } else {
+            self.move_toward_blind(target)
+        };
 
         let (tx, ty, tz) = shared::gazebo_cell_center((target.0, target.1, target.2));
         let dx = tx - self.pose.x;
         let dy = ty - self.pose.y;
         let dz = tz - self.pose.z;
         let dist2 = dx * dx + dy * dy + dz * dz;
-        if dist2 < 0.25 {
+        let path_just_advanced = dist2 < 0.25;
+        if path_just_advanced {
             self.path_index += 1;
             self.best_target_dist2 = f64::MAX;
             self.steps_no_progress = 0;
         }
 
-        // Wall avoidance (persistent: stays active for N steps after wall clears)
-        if self.recovery_phase != RecoveryPhase::None {
-            cmd = self.recovery_step();
-        } else if self.wall_too_close(scan) {
-            self.avoid_steps_remaining = 5;
-            if !self.in_avoidance {
-                self.wall_stuck_count += 1;
-                if self.wall_stuck_count >= 4 {
-                    self.recovery_phase = RecoveryPhase::Backup { remaining: 8 };
-                    cmd = self.recovery_step();
-                } else {
-                    self.in_avoidance = true;
-                    cmd = self.avoid_obstacle(scan);
-                }
-            } else {
-                cmd = self.avoid_obstacle(scan);
-            }
-        } else if self.in_avoidance {
-            self.avoid_steps_remaining -= 1;
-            if self.avoid_steps_remaining == 0 {
-                self.in_avoidance = false;
-                self.wall_stuck_count = 0;
-            } else {
-                cmd = self.avoid_obstacle(scan);
-            }
-        } else {
-            self.wall_stuck_count = 0;
-        }
-
-        // Progress check for return phase — same spin + revisit detection as forward.
-        if self.recovery_phase == RecoveryPhase::None {
+        if self.recovery_phase == RecoveryPhase::None && !path_just_advanced {
+            let cell = (self.pose.x as usize, self.pose.y as usize, self.pose.z as usize);
             let is_spinning = cmd.linear_x.abs() < 0.01 && cmd.angular_z.abs() > 0.01;
             if is_spinning {
                 self.spin_steps += 1;
-                if self.spin_steps >= 20 {
-                    eprintln!("[ROBOT] step {} [RETURN] spinning for {} steps — backing up",
-                        self.state.step, self.spin_steps);
+                if self.spin_steps >= 40 {
+                    eprintln!("[ROBOT] step {} [RETURN] spinning — backing up + replanning",
+                        self.state.step);
                     self.spin_steps = 0;
                     self.recovery_phase = RecoveryPhase::Backup { remaining: 12 };
                     cmd = self.recovery_step();
+                    self.replan_return(cell);
                 }
             } else {
                 self.spin_steps = 0;
-            }
-            if self.recovery_phase == RecoveryPhase::None {
-            if self.best_target_dist2 == f64::MAX || dist2 < self.best_target_dist2 - 0.01 {
-                self.best_target_dist2 = dist2;
-                self.steps_no_progress = 0;
-            } else {
-                self.steps_no_progress += 1;
-                if self.steps_no_progress >= 15 {
-                    eprintln!("[ROBOT] step {} [RETURN] no progress for {} steps (dist={:.2}) – backing up",
-                        self.state.step, self.steps_no_progress, dist2.sqrt());
-                    self.recovery_phase = RecoveryPhase::Backup { remaining: 10 };
-                    cmd = self.recovery_step();
+                if self.best_target_dist2 == f64::MAX || dist2 < self.best_target_dist2 - 0.01 {
+                    self.best_target_dist2 = dist2;
+                    self.steps_no_progress = 0;
+                } else {
+                    self.steps_no_progress += 1;
+                    if self.steps_no_progress >= 30 {
+                        eprintln!("[ROBOT] step {} [RETURN] no progress (dist={:.2}) — skipping waypoint + replanning",
+                            self.state.step, dist2.sqrt());
+                        self.steps_no_progress = 0;
+                        self.best_target_dist2 = f64::MAX;
+                        if self.path_index + 1 < self.path.len() {
+                            self.path_index += 1;
+                        }
+                        self.replan_return(cell);
+                    }
                 }
             }
-            } // end recovery_phase == None guard
         }
 
         let action = if cmd.linear_z.abs() > 0.01 {
@@ -929,80 +909,51 @@ impl Robot {
     }
 
     fn apply_command(&mut self, cmd: NavCommand, dt: f64) {
+        self.last_dt = dt;
+        self.last_cmd = cmd;
+        self.ekf.predict(cmd.linear_x, cmd.linear_z, cmd.angular_z, dt);
         self.pose.x += cmd.linear_x * self.pose.yaw.cos() * dt;
         self.pose.y += cmd.linear_x * self.pose.yaw.sin() * dt;
-        // 1 cave-grid z-unit spans GAZEBO_LEVEL_SPACING_METERS in the world, so
-        // a linear_z velocity (m/s) advances the cave-grid z coordinate more slowly.
         self.pose.z += cmd.linear_z * dt;
-        self.pose.yaw += cmd.angular_z * dt;
+        self.pose.yaw = ang_diff(self.pose.yaw + cmd.angular_z * dt, 0.0);
         self.state.pose = self.pose;
     }
 
-    fn discover_obstacles(&mut self, scan: &LidarScan) -> bool {
-        let mut discovered = false;
-        let n_h = scan.num_horizontal();
-        let n_v = scan.num_vertical();
-
-        for vi in 0..n_v {
-            let elev = scan.angle_min_vertical + vi as f64 * scan.angle_increment_vertical;
-            for hi in 0..n_h {
-                let az = scan.angle_min + hi as f64 * scan.angle_increment;
-                let measured = scan.range(hi, vi);
-                if measured >= scan.range_max - 0.01 {
-                    continue;
-                }
-
-                let global_az = self.pose.yaw + az;
-                let dx = global_az.cos() * elev.cos();
-                let dy = global_az.sin() * elev.cos();
-                let dz = elev.sin();
-
-                let physical_z = shared::gazebo_physical_z(self.pose.z);
-                let hx = (self.pose.x + dx * measured) as usize;
-                let hy = (self.pose.y + dy * measured) as usize;
-                let hz = ((physical_z + dz * measured) / shared::GAZEBO_LEVEL_SPACING_METERS) as usize;
-
-                if hx < self.cave.size_x && hy < self.cave.size_y && hz < self.cave.size_z {
-                    let tile = self.cave.grid[hz][hy][hx];
-                    if tile == shared::TILE_WALL && self.graph.is_passable(Node(hx, hy, hz)) {
-                        self.graph.set_passable(Node(hx, hy, hz), false);
-                        self.planner.update_obstacle(Node(hx, hy, hz), true);
-                        discovered = true;
-                    }
-                }
+    /// Recompute the forward path with A* from the given cell.
+    /// Called after a recovery backup so the drone gets a fresh route from
+    /// wherever it ended up.
+    fn replan_forward(&mut self, cell: (usize, usize, usize)) {
+        let current_node = Node(cell.0, cell.1, cell.2);
+        let end_node = Node(self.cave.end.0, self.cave.end.1, self.cave.end.2);
+        match astar(&self.graph, current_node, end_node) {
+            Some((p, _)) => {
+                eprintln!("[ROBOT] replanned forward: {} cells from ({},{},{})",
+                    p.len(), cell.0, cell.1, cell.2);
+                self.path = p;
+                self.path_index = 0;
+                self.best_target_dist2 = f64::MAX;
+                self.steps_no_progress = 0;
+            }
+            None => {
+                eprintln!("[ROBOT] replan failed — no A* path from ({},{},{})", cell.0, cell.1, cell.2);
             }
         }
-
-        discovered
     }
 
-    fn avoid_obstacle(&self, scan: &LidarScan) -> NavCommand {
-        let target_body_az = if self.path_index < self.path.len() {
-            let t = self.path[self.path_index];
-            let (tx, ty, _) = shared::gazebo_cell_center((t.0, t.1, t.2));
-            let global = (ty - self.pose.y).atan2(tx - self.pose.x);
-            ang_diff(global, self.pose.yaw)
-        } else {
-            0.0
-        };
-
-        let (best_az, best_score) = self.score_azimuths(scan, target_body_az);
-
-        if best_score < 0.3 {
-            NavCommand {
-                linear_x: -0.3,
-                linear_y: 0.0,
-                linear_z: 0.0,
-                angular_z: if best_az >= 0.0 { 0.5 } else { -0.5 },
+    fn replan_return(&mut self, cell: (usize, usize, usize)) {
+        let current_node = Node(cell.0, cell.1, cell.2);
+        let start_node = Node(self.cave.start.0, self.cave.start.1, self.cave.start.2);
+        match astar(&self.graph, current_node, start_node) {
+            Some((p, _)) => {
+                eprintln!("[ROBOT] replanned return: {} cells from ({},{},{})",
+                    p.len(), cell.0, cell.1, cell.2);
+                self.path = p;
+                self.path_index = 0;
+                self.best_target_dist2 = f64::MAX;
+                self.steps_no_progress = 0;
             }
-        } else if best_az.abs() > 0.3 {
-            NavCommand::rotate(if best_az >= 0.0 { 0.7 } else { -0.7 })
-        } else {
-            NavCommand {
-                linear_x: 0.4,
-                linear_y: 0.0,
-                linear_z: 0.0,
-                angular_z: best_az * 2.0,
+            None => {
+                eprintln!("[ROBOT] return replan failed from ({},{},{})", cell.0, cell.1, cell.2);
             }
         }
     }
@@ -1032,7 +983,6 @@ impl Robot {
                 };
                 if remaining <= 1 {
                     self.recovery_phase = RecoveryPhase::None;
-                    self.wall_stuck_count = 0;
                 } else {
                     self.recovery_phase = RecoveryPhase::Rotate { remaining: remaining - 1 };
                 }
@@ -1042,77 +992,7 @@ impl Robot {
         }
     }
 
-    fn wall_too_close(&self, scan: &LidarScan) -> bool {
-        let n_h = scan.num_horizontal();
-        let angle_inc = scan.angle_increment;
-        // Cover the full frontal half of the drone (±90°) so arm tips at ±45°
-        // are included. min_safe accounts for rotor tips ~0.13 m from centre
-        // (0.09 m arm + 0.036 m rotor) plus a ~0.07 m buffer.
-        let forward_cone = std::f64::consts::FRAC_PI_2;
-        let min_safe = 0.20;
-
-        let elev_limit = 0.35_f64;
-        for hi in 0..n_h {
-            let az = scan.angle_min + hi as f64 * angle_inc;
-            if az.abs() > forward_cone {
-                continue;
-            }
-            let n_v = scan.num_vertical();
-            for vi in 0..n_v {
-                let elev = scan.angle_min_vertical + vi as f64 * scan.angle_increment_vertical;
-                if elev.abs() > elev_limit {
-                    continue;
-                }
-                let measured = scan.range(hi, vi);
-                if measured >= scan.range_max - 0.01 {
-                    continue;
-                }
-                if measured < min_safe {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Score each azimuth in the LiDAR scan, preferring clear paths aligned
-    /// with the target direction.  Returns (best_azimuth_in_body_frame, score).
-    fn score_azimuths(&self, scan: &LidarScan, target_body_az: f64) -> (f64, f64) {
-        let n_h = scan.num_horizontal();
-        let n_v = scan.num_vertical();
-        let angle_inc = scan.angle_increment;
-        let mut best_score = -f64::INFINITY;
-        let mut best_az = target_body_az;
-        let elev_limit = 0.35_f64; // ignore steep up/down rays (floor & ceiling)
-        for hi in 0..n_h {
-            let az = scan.angle_min + hi as f64 * angle_inc;
-            let mut min_at_az = scan.range_max;
-            for vi in 0..n_v {
-                let elev = scan.angle_min_vertical + vi as f64 * scan.angle_increment_vertical;
-                if elev.abs() > elev_limit {
-                    continue;
-                }
-                let r = scan.range(hi, vi);
-                if r < min_at_az {
-                    min_at_az = r;
-                }
-            }
-            let yaw_diff = ang_diff(target_body_az, az).abs();
-            let alignment = (std::f64::consts::PI - yaw_diff) / std::f64::consts::PI;
-            let score = min_at_az * (0.3 + 0.7 * alignment);
-            if score > best_score {
-                best_score = score;
-                best_az = az;
-            }
-        }
-        (best_az, best_score)
-    }
-
     /// Proportional heading controller — face the waypoint then drive.
-    /// Reactive obstacle avoidance is handled separately by wall_too_close /
-    /// avoid_obstacle, so this function just needs to keep the drone aimed
-    /// at the next cell centre without any LiDAR scoring that could cause
-    /// oscillation or spurious spinning.
     fn move_toward(&self, target: Node, _scan: &LidarScan) -> NavCommand {
         let (tx, ty, tz) = shared::gazebo_cell_center((target.0, target.1, target.2));
         let dz = tz - self.pose.z;
@@ -1130,28 +1010,23 @@ impl Robot {
         let dy = ty - self.pose.y;
         let heading_err = ang_diff(dy.atan2(dx), self.pose.yaw);
 
-        if heading_err.abs() > 0.2 {
-            // Turn to face the waypoint before driving
+        if heading_err.abs() > 0.35 {
             NavCommand {
                 linear_x: 0.0,
                 linear_y: 0.0,
                 linear_z: 0.0,
-                angular_z: heading_err.signum() * 0.7,
+                angular_z: heading_err.signum() * 1.0,
             }
         } else {
-            // Drive forward, steering proportionally to hold the heading
             NavCommand {
-                linear_x: 1.0,
+                linear_x: 0.8,
                 linear_y: 0.0,
                 linear_z: 0.0,
-                angular_z: heading_err * 2.0,
+                angular_z: heading_err * 2.5,
             }
         }
     }
 
-    /// Pure kinematic waypoint approach — no LiDAR used.
-    /// Used during the blind return phase where scan data is ignored.
-    /// Drives at half speed to compensate for the lack of obstacle reactions.
     fn move_toward_blind(&self, target: Node) -> NavCommand {
         let (tx, ty, tz) = shared::gazebo_cell_center((target.0, target.1, target.2));
         let dz = tz - self.pose.z;
@@ -1160,7 +1035,7 @@ impl Robot {
             return NavCommand {
                 linear_x: 0.0,
                 linear_y: 0.0,
-                linear_z: dz.signum() * 0.5,
+                linear_z: dz.signum() * 1.0,
                 angular_z: 0.0,
             };
         }
@@ -1169,22 +1044,58 @@ impl Robot {
         let dy = ty - self.pose.y;
         let heading_err = ang_diff(dy.atan2(dx), self.pose.yaw);
 
-        if heading_err.abs() > 0.2 {
+        if heading_err.abs() > 0.35 {
             NavCommand {
                 linear_x: 0.0,
                 linear_y: 0.0,
                 linear_z: 0.0,
-                angular_z: heading_err.signum() * 0.5,
+                angular_z: heading_err.signum() * 1.0,
             }
         } else {
             NavCommand {
-                linear_x: 0.5,
+                linear_x: 0.8,
                 linear_y: 0.0,
                 linear_z: 0.0,
-                angular_z: heading_err * 1.5,
+                angular_z: heading_err * 2.5,
             }
         }
     }
+}
+
+/// BFS flood-fill from wall cells to compute, for each passable cell,
+/// its Manhattan distance to the nearest wall in the x-y plane.
+/// Used to bias A* toward corridor centres.
+fn compute_clearance(cave: &Cave) -> Vec<Vec<Vec<usize>>> {
+    use std::collections::VecDeque;
+    let mut dist = vec![vec![vec![usize::MAX; cave.size_x]; cave.size_y]; cave.size_z];
+    let mut queue = VecDeque::new();
+
+    for z in 0..cave.size_z {
+        for y in 0..cave.size_y {
+            for x in 0..cave.size_x {
+                if !shared::is_passable(cave.grid[z][y][x]) {
+                    dist[z][y][x] = 0;
+                    queue.push_back((x, y, z));
+                }
+            }
+        }
+    }
+
+    while let Some((x, y, z)) = queue.pop_front() {
+        let d = dist[z][y][x];
+        for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+            let nx = x as i64 + dx;
+            let ny = y as i64 + dy;
+            if nx < 0 || ny < 0 { continue; }
+            let (nx, ny) = (nx as usize, ny as usize);
+            if nx >= cave.size_x || ny >= cave.size_y { continue; }
+            if dist[z][ny][nx] == usize::MAX {
+                dist[z][ny][nx] = d + 1;
+                queue.push_back((nx, ny, z));
+            }
+        }
+    }
+    dist
 }
 
 fn ang_diff(a: f64, b: f64) -> f64 {
